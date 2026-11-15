@@ -17,6 +17,12 @@ _VALID_THEMES = {"dark", "light"}
 _VALID_ORTHO_LAYOUTS = {"horizontal", "big-left"}
 _VALID_DIMBAR_MODES = {"compact", "extended"}
 _VALID_TURN_ANIMATIONS = {"rotate", "fade"}
+_VALID_QMRI_STARTS = {"picker", "straight"}
+# What q opens in qMRI: parameter maps by role, synthetic contrasts by name.
+QMRI_START_NAMES = (
+    "t1", "t2", "pd", "b1", "db0", "phase",
+    "t1w", "t2w", "pdw", "t2flair", "stir", "psir",
+)
 _CONFIG_LOCK = threading.Lock()
 
 WINDOW_PREFERENCE_OPTIONS = {
@@ -45,6 +51,7 @@ BUILTIN_PREFERENCES = {
         "ortho_layout": None,
         "dimbar_mode": "compact",
         "turn_animation": "rotate",
+        "qmri_start": "picker",
     },
 }
 PREFERENCE_SCHEMA = {
@@ -59,6 +66,8 @@ PREFERENCE_SCHEMA = {
         "ortho_layout": sorted(_VALID_ORTHO_LAYOUTS),
         "dimbar_mode": sorted(_VALID_DIMBAR_MODES),
         "turn_animation": sorted(_VALID_TURN_ANIMATIONS),
+        "qmri_start": sorted(_VALID_QMRI_STARTS),
+        "qmri_maps": "non-empty list of names",
     },
     "nninteractive": {"url": "string"},
 }
@@ -148,6 +157,18 @@ def _validate_preference(section: str, key: str, value):
         return _normalized_string(value, _VALID_DIMBAR_MODES, "viewer.dimbar_mode")
     if section == "viewer" and key == "turn_animation":
         return _normalized_string(value, _VALID_TURN_ANIMATIONS, "viewer.turn_animation")
+    if section == "viewer" and key == "qmri_start":
+        return _normalized_string(value, _VALID_QMRI_STARTS, "viewer.qmri_start")
+    if section == "viewer" and key == "qmri_maps":
+        if not isinstance(value, list) or not value or not all(isinstance(v, str) for v in value):
+            raise InvalidPreferenceError("viewer.qmri_maps must be a non-empty list of names")
+        normalized = list(dict.fromkeys(v.strip().lower() for v in value))
+        unknown = [v for v in normalized if v not in QMRI_START_NAMES]
+        if unknown:
+            raise InvalidPreferenceError(
+                f"viewer.qmri_maps: unknown {', '.join(unknown)}; use {', '.join(QMRI_START_NAMES)}"
+            )
+        return normalized
     if section == "nninteractive" and key == "url":
         if not isinstance(value, str) or not value.strip():
             raise InvalidPreferenceError("nninteractive.url must be a non-empty string")
@@ -294,6 +315,29 @@ def get_viewer_turn_animation() -> str | None:
         return None
     value = viewer_cfg.get("turn_animation")
     return value.strip().lower() if isinstance(value, str) and value.strip().lower() in _VALID_TURN_ANIMATIONS else None
+
+
+def get_viewer_qmri_start() -> str | None:
+    """Return what q does outside qMRI: "picker" (ask first) or "straight"."""
+    viewer_cfg = load_config().get("viewer", {})
+    if not isinstance(viewer_cfg, dict):
+        return None
+    value = viewer_cfg.get("qmri_start")
+    return value.strip().lower() if isinstance(value, str) and value.strip().lower() in _VALID_QMRI_STARTS else None
+
+
+def get_viewer_qmri_maps() -> list[str] | None:
+    """Return the maps / contrasts q starts qMRI with (known names only), or None."""
+    viewer_cfg = load_config().get("viewer", {})
+    if not isinstance(viewer_cfg, dict):
+        return None
+    value = viewer_cfg.get("qmri_maps")
+    if isinstance(value, str):  # `arrayview config set viewer.qmri_maps t1,t2,pd`
+        value = value.split(",")
+    if not isinstance(value, list):
+        return None
+    names = [v.strip().lower() for v in value if isinstance(v, str) and v.strip().lower() in QMRI_START_NAMES]
+    return list(dict.fromkeys(names)) or None
 
 
 def get_nninteractive_url() -> str | None:

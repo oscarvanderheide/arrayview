@@ -1020,7 +1020,8 @@ class TestKeyboard:
         page.wait_for_function("() => !detachedDimMode && !compareActive", timeout=10_000)
         page.wait_for_timeout(500)
         page.evaluate("() => { indices[collectionSpatialNdim] = 0; spreadCount = 2; renderInfo(); }")
-        page.keyboard.press("q")
+        page.keyboard.press("q")  # map picker
+        page.keyboard.press("q")  # opens the ticked maps
         page.wait_for_function("() => qmriActive", timeout=5_000)
         page.wait_for_function(
             "() => (document.getElementById('case-name-out')?.textContent || '').toLowerCase() === 'alpha'",
@@ -1034,7 +1035,8 @@ class TestKeyboard:
         page.evaluate("() => { indices[collectionSpatialNdim] = 0; activeDim = collectionSpatialNdim; renderInfo(); }")
         side_by_side(page)
         page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
-        page.keyboard.press("q")
+        page.keyboard.press("q")  # map picker
+        page.keyboard.press("q")  # opens the ticked maps
         page.wait_for_function("() => compareQmriActive", timeout=5_000)
         rows_names = "() => [...document.querySelectorAll('.cq-row-name')].map(e => e.textContent.toLowerCase()).join(',')"
         assert page.evaluate("() => [...new Set(compareQmriViews.map(v => v.rowIdx))]") == [0, 1]
@@ -1625,7 +1627,8 @@ class TestKeyboard:
         page.keyboard.press("F")
         page.wait_for_function("() => _fullscreenActive", timeout=5_000)
         page.wait_for_timeout(900)
-        page.keyboard.press("q")
+        page.keyboard.press("q")  # map picker
+        page.keyboard.press("q")  # opens the ticked maps
         page.wait_for_function("() => qmriActive && !_fullscreenActive", timeout=5_000)
         page.wait_for_timeout(900)
         assert page.evaluate("() => document.querySelectorAll('.qv-cb-island.fs-overlay').length") == 0
@@ -2169,6 +2172,8 @@ class TestModeCombinations:
         ]:
             _focus_kb(page)
             page.keyboard.press(key)
+            if key == "q" and page.evaluate("!!_qmriChooser"):
+                page.keyboard.press("q")  # the map picker: open the ticked maps
             page.wait_for_function(f"() => {check}", timeout=5_000)
             page.wait_for_timeout(300)
             assert page.locator("#qmri-view-wrap canvas:visible, #compare-view-wrap canvas:visible").count() > 0
@@ -2182,6 +2187,40 @@ class TestModeCombinations:
         page.keyboard.press("z")
         page.wait_for_function("() => dim_z === -1", timeout=5_000)
 
+    def test_q_asks_which_maps_first(self, page, server_url, client, tmp_path):
+        """q shows the map picker (T1, T2, PD ticked); q or Enter opens them, Esc does not."""
+        from conftest import register_array
+        arr = np.random.default_rng(6).random((5, 6, 24, 24)).astype(np.float32)
+        sid = register_array(client, arr, tmp_path, "qpick")
+        page.goto(f"{server_url}/?sid={sid}")
+        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        _focus_kb(page)
+        picker = "#qmri-dimbar-popup.visible .q-dim-chooser"
+        page.keyboard.press("q")
+        page.wait_for_selector(picker, timeout=5_000)
+        on = page.evaluate("() => [...document.querySelectorAll('#qmri-dimbar-popup [data-qmri-map].on')].map(b => b.textContent)")
+        assert on == ["T\u2081", "T\u2082", "|PD|"]
+        assert "Hold q" in page.inner_text("#qmri-dimbar-popup .q-dim-popup-foot")
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(300)
+        assert page.evaluate("() => !qmriActive && !_qmriChooser")
+        # Untick PD, then Enter opens T1 and T2 only.
+        page.keyboard.press("q")
+        page.wait_for_selector(picker, timeout=5_000)
+        page.click("#qmri-dimbar-popup [data-qmri-map='3']")
+        page.keyboard.press("Enter")
+        page.wait_for_function("() => qmriActive", timeout=5_000)
+        assert page.evaluate("() => _qmriVisibleMaps.join(',')") == "0,1"
+        # No options button in the corner: hold q is the way in.
+        assert not page.is_visible("#qmri-hint")
+        page.keyboard.press("q")
+        page.wait_for_function("() => !qmriActive", timeout=5_000)
+        # "Straight" in Preferences skips the picker.
+        page.evaluate("() => { _applyViewerPreference('qmri_start', 'straight'); _applyViewerPreference('qmri_maps', ['t2', 'b1']); }")
+        page.keyboard.press("q")
+        page.wait_for_function("() => qmriActive", timeout=5_000)
+        assert page.evaluate("() => _qmriVisibleMaps.join(',') + '|' + !!_qmriChooser") == "1,2|false"
+
     def test_wheel_scrolls_slices_in_qmri(self, page, server_url, client, tmp_path):
         """qMRI used to leave the wheel on the maps dim, so scrolling did nothing."""
         from conftest import register_array
@@ -2190,7 +2229,8 @@ class TestModeCombinations:
         page.goto(f"{server_url}/?sid={sid}")
         page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
         _focus_kb(page)
-        page.keyboard.press("q")
+        page.keyboard.press("q")  # map picker
+        page.keyboard.press("q")  # opens the ticked maps
         page.wait_for_function("() => qmriActive", timeout=5_000)
         page.wait_for_timeout(500)
         # The maps dim shows in the dim bar as a purple "q".

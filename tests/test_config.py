@@ -8,6 +8,8 @@ import pytest
 from arrayview._config import (
     MalformedConfigError,
     get_viewer_dimbar_mode,
+    get_viewer_qmri_maps,
+    get_viewer_qmri_start,
     get_viewer_colormaps,
     get_viewer_compare_gapless,
     get_viewer_ortho_layout,
@@ -230,6 +232,30 @@ class TestGetViewerRoundedPanes:
             rounded_panes = "sometimes"
         """))
         assert get_viewer_rounded_panes() is None
+
+
+class TestQmriStartPreferences:
+    def test_reads_start_mode_and_maps(self, tmp_config):
+        tmp_config.write_text('[viewer]\nqmri_start = "straight"\nqmri_maps = ["T2", "pd", "t2w", "nope"]\n')
+        assert get_viewer_qmri_start() == "straight"
+        assert get_viewer_qmri_maps() == ["t2", "pd", "t2w"]
+
+    def test_maps_from_command_line_string(self, tmp_config):
+        tmp_config.write_text('[viewer]\nqmri_maps = "t1, t2,pdw"\n')
+        assert get_viewer_qmri_maps() == ["t1", "t2", "pdw"]
+
+    def test_unset_means_picker_with_default_maps(self, tmp_config):
+        tmp_config.write_text("[viewer]\n")
+        assert get_viewer_qmri_start() is None
+        assert get_viewer_qmri_maps() is None
+
+    def test_update_validates_names(self, tmp_config):
+        update_preferences({"viewer": {"qmri_maps": ["T1", "t1", "stir"]}})
+        assert get_viewer_qmri_maps() == ["t1", "stir"]
+        with pytest.raises(Exception):
+            update_preferences({"viewer": {"qmri_maps": ["t9"]}})
+        with pytest.raises(Exception):
+            update_preferences({"viewer": {"qmri_start": "sometimes"}})
 
 
 class TestGetViewerLayoutPreferences:

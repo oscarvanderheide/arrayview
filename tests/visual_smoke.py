@@ -29,7 +29,7 @@ AXES & VIEWS
   v               3-plane multiview         ✓ 08
   V               3-plane custom dims       ✓ 41 (inline prompt, type dims)
   o               reset oblique (multiview) ✓ 23 (enter mv, rotate, reset)
-  q               qMRI mode & toggle        ✓ 10-12, 12a-c (toggle compact/full), 12d (synthetic MRI row), 12e (Alt options menu)
+  q               qMRI mode & toggle        ✓ 10-12, 12a-c (toggle compact/full), 12d (synthetic MRI row), 12e (hold-q options menu)
     /               special modes shelf       ✓ 28b
   a               stretch to square (all)   ✓ 66 (a in normal, mv, compare; default on in mv)
 
@@ -221,6 +221,12 @@ def _focus(page):
     page.locator("#keyboard-sink").focus()
 
 
+def _enter_qmri(page, wait=1500):
+    """q opens the map picker first; Enter opens the ticked maps."""
+    _press(page, "q", wait=300)
+    _press(page, "Enter", wait=wait)
+
+
 def _press(page, key, wait=400):
     page.keyboard.press(key)
     page.wait_for_timeout(wait)
@@ -396,7 +402,7 @@ def run_smoke(page, base, client, tmp):
     # ── 10-11: qMRI 5-panel, initial + scrolled ──────────────────────────────
     _goto(page, base, sid4d)
     _focus(page)
-    _press(page, "q", wait=2500)  # all 5 panels need time
+    _enter_qmri(page, wait=2500)  # all 5 panels need time
     _shot(page, "10_qmri_5panel_initial", wait=0)
     for _ in range(3):
         _press(page, "ArrowRight", wait=300)
@@ -406,14 +412,14 @@ def run_smoke(page, base, client, tmp):
     # ── 12: qMRI 3-panel ─────────────────────────────────────────────────────
     _goto(page, base, sid_qmri3)
     _focus(page)
-    _press(page, "q", wait=1500)
+    _enter_qmri(page, wait=1500)
     _shot(page, "12_qmri_3panel")
     _press(page, "q", wait=400)
 
     # ── 12a: qMRI toggle compact/full (5-panel) ──────────────────────────────
     _goto(page, base, sid4d)
     _focus(page)
-    _press(page, "q", wait=2500)  # enter full view (5 panels)
+    _enter_qmri(page, wait=2500)  # enter full view (5 panels)
     _shot(page, "12a_qmri_full_5panel", wait=0)
     _press(page, "q", wait=1500)  # toggle to compact (3 panels)
     _shot(page, "12b_qmri_compact_3panel", wait=0)
@@ -424,7 +430,7 @@ def run_smoke(page, base, client, tmp):
     # ── 12d: qMRI synthetic MRI row ──────────────────────────────────────────
     _goto(page, base, sid4d)
     _focus(page)
-    _press(page, "q", wait=2500)
+    _enter_qmri(page, wait=2500)
     page.evaluate("""async () => {
         _islandToggleQmriSyntheticContrast('t1w');
     }""")
@@ -432,14 +438,14 @@ def run_smoke(page, base, client, tmp):
     _shot(page, "12d_qmri_synthetic_t1w", wait=0)
     _press(page, "q", wait=400)
 
-    # ── 12e: qMRI Alt options menu ───────────────────────────────────────────
+    # ── 12e: qMRI options menu (hold q) ──────────────────────────────────────
     _goto(page, base, sid4d)
     _focus(page)
-    _press(page, "q", wait=2500)
-    page.keyboard.down("Alt")
+    _enter_qmri(page, wait=2500)
+    page.keyboard.down("q")
     page.wait_for_selector("#qmri-dimbar-popup.visible", timeout=5000)
     _shot(page, "12e_qmri_alt_options_menu", wait=0)
-    page.keyboard.up("Alt")
+    page.keyboard.up("q")
     _press(page, "q", wait=400)
 
     # ── 13-14: compare mode ───────────────────────────────────────────────────
@@ -567,7 +573,7 @@ def run_smoke(page, base, client, tmp):
 
     _goto(page, base, sid_med4d, wait=1800)
     _focus(page)
-    _press(page, "q", wait=3000)
+    _enter_qmri(page, wait=3000)
     _shot(page, "31_med4d_qmri_5panel")
     _press(page, "q", wait=400)
 
@@ -1496,7 +1502,7 @@ def run_smoke(page, base, client, tmp):
     _focus(page)
 
     # 62a: Enter compare-qMRI by pressing q
-    _press(page, "q", wait=2500)
+    _enter_qmri(page, wait=2500)
     qv_rows = page.locator("#qmri-view-wrap .qv-row")
     row_count = qv_rows.count()
     if row_count >= 2:

@@ -53,6 +53,8 @@ from arrayview._config import (
     get_viewer_colormaps,
     get_viewer_dimbar_mode,
     get_viewer_turn_animation,
+    get_viewer_qmri_start,
+    get_viewer_qmri_maps,
     get_viewer_ortho_layout,
     get_viewer_rounded_panes,
     get_viewer_qmri_gapless,
@@ -493,6 +495,8 @@ def _viewer_ui_response(
         .replace("__DEFAULT_ORTHO_LAYOUT__", _default_ortho_layout)
         .replace("__DEFAULT_DIMBAR_MODE__", _default_dimbar_mode)
         .replace("__DEFAULT_TURN_ANIMATION__", _default_turn_animation)
+        .replace("__DEFAULT_QMRI_START__", json.dumps(get_viewer_qmri_start()))
+        .replace("__DEFAULT_QMRI_MAPS__", json.dumps(get_viewer_qmri_maps()))
         .replace("__BODY_CLASS__", "av-loading" if sid else "")
         .replace("__ARRAYVIEW_VERSION__", _av_version)
     )

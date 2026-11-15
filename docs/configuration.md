@@ -35,6 +35,8 @@ arrayview config set viewer.rounded_panes false
 arrayview config set viewer.ortho_layout big-left
 arrayview config set viewer.dimbar_mode extended
 arrayview config set viewer.turn_animation fade
+arrayview config set viewer.qmri_start straight
+arrayview config set viewer.qmri_maps t1,t2,pd,t1w
 ```
 
 Ortho layouts: `horizontal`, `big-left`.
@@ -42,6 +44,11 @@ Ortho layouts: `horizontal`, `big-left`.
 Dimbar modes: `compact`, `extended`.
 
 Turn animations (r / t / o): `rotate` (default), `fade`.
+
+qMRI start (`q`): `picker` (default) first shows which maps and contrasts to
+open; `straight` opens the `qmri_maps` at once. `qmri_maps` names maps
+(`t1`, `t2`, `pd`, `b1`, `db0`, `phase`) and synthetic contrasts (`t1w`, `t2w`,
+`pdw`, `t2flair`, `stir`, `psir`); unset means `t1, t2, pd`.
 
 ## Environment variable
 

@@ -231,7 +231,8 @@ def test_compare_ortho_glides_in_and_back(page, server_url, client, arr_3d, tmp_
 def test_compare_qmri_glides_in_and_back(page, server_url, client, tmp_path):
     arr = np.random.default_rng(2).random((4, 8, 32, 40)).astype(np.float32)
     page = _compare_page(page, server_url, client, arr, tmp_path)
-    page.keyboard.press("q")
+    page.keyboard.press("q")  # map picker
+    page.keyboard.press("q")  # opens the ticked maps
     assert page.evaluate("_orthoGlideBusy")
     first = page.evaluate(f"({_ROW_LAYOUT})(compareQmriViews)")
     assert all(r[2] > 0 for r in first)
@@ -330,6 +331,8 @@ def _press_all(page, keys):
             side_by_side(page)
         else:
             page.keyboard.press(k)
+            if k == "q" and page.evaluate("!!_qmriChooser"):
+                page.keyboard.press("q")  # the map picker: open the ticked maps
         page.wait_for_function("() => !_orthoGlideBusy && !_crossfading", timeout=10_000)
         page.wait_for_timeout(400)
     _settle(page)

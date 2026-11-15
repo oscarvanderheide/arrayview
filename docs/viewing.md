@@ -54,7 +54,7 @@ Rendered as direct color via `--rgb` on the CLI or `rgb=True` in Python. The fir
 
 ## qMRI
 
-`q` — opens qMRI for a parameter dimension. Hold Alt/Option while qMRI is active to choose quantitative parameters and synthesised contrasts. Synthetic contrasts show TE/TR/TI sliders below each pane when available.
+`q` — opens qMRI for a parameter dimension. It first shows which maps and synthesised contrasts to open, with T₁, T₂ and PD ticked; press `q` again or Enter to open them, Esc to cancel. While qMRI is active, hold `q` to change them; a quick tap of `q` leaves qMRI. Synthetic contrasts show TE/TR/TI sliders below each pane when available. In Preferences, *q opens qMRI* set to *Straight to the maps* skips the first step, and *qMRI maps* sets what opens (for example `t1, t2, pd, t1w`).
 
 ## Navigation
 

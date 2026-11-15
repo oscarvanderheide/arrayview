@@ -81,7 +81,8 @@ def test_inline_wrapper_resizes_for_qmri_and_restores_default(
     frame = page.frame_locator("iframe")
     frame.locator("#canvas-wrap").wait_for(state="visible", timeout=15_000)
 
-    frame.locator("body").press("q")
+    frame.locator("body").press("q")  # map picker
+    frame.locator("body").press("q")  # opens the ticked maps
     page.wait_for_function(
         "() => document.querySelector(\"div[id^='arrayview-inline-']\").getBoundingClientRect().height === 420"
     )
@@ -157,7 +158,8 @@ def _exit_compare(page):
 
 # --- qmri (needs 4D) ---
 def _enter_qmri(page):
-    page.keyboard.press("q")
+    page.keyboard.press("q")  # map picker
+    page.keyboard.press("q")  # opens the ticked maps
     _wait(page, 400)
 
 

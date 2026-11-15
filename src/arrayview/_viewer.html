@@ -180,6 +180,8 @@
         #array-name, #info, #canvas-wrap, #slim-cb-wrap, #help-hint {
             transition: opacity 0.3s ease;
         }
+        /* The dim bar's pieces travel as copies during a glide (_dimBarCrossfade). */
+        #info.dimbar-morphing > * { opacity: 0 !important; }
         #info {
             margin-bottom: 8px; font-size: 18px; white-space: nowrap;
             text-align: left; flex-shrink: 0; letter-spacing: 0.01em;
@@ -522,8 +524,16 @@
             padding: 0 6px; margin: 0 -6px;
             transition: color 140ms ease, opacity 140ms ease, background 120ms ease;
         }
-        [data-cb-bound]:hover { background: rgba(255,255,255,0.06); }
-        :root.light [data-cb-bound]:hover { background: rgba(0,0,0,0.045); }
+        /* The highlight is a layer under the text, so it can leave out the empty
+           slot kept for a minus sign (_signPad) and sit evenly around the number. */
+        [data-cb-bound] { position: relative; isolation: isolate; }
+        [data-cb-bound]::before {
+            content: ''; position: absolute; inset: 0; z-index: -1;
+            border-radius: inherit; background: transparent; transition: background 120ms ease;
+        }
+        [data-cb-bound].cb-sign-padded::before { left: 1ch; }
+        [data-cb-bound]:hover::before { background: rgba(255,255,255,0.06); }
+        :root.light [data-cb-bound]:hover::before { background: rgba(0,0,0,0.045); }
         .cb-expanded [data-cb-bound].is-locked,
         .cb-expanded [data-cb-bound].locked { color: var(--muted) !important; opacity: 0.5; }
 
@@ -4088,7 +4098,9 @@
         .detached-index-hint .hint-bracket[data-detached-key="]"] { left: 100%; }
         .detached-index-hint .hint-bracket:not(.index-hint-glow) { visibility: hidden; }
         /* "1 · name": monospace spaces are a full letter wide — tighten them. */
-        .detached-index-hint .hint-sep { word-spacing: -0.55ch; }
+        .detached-index-hint .hint-sep, .av-name-sep { word-spacing: -0.55ch; }
+        /* A row's name starts where the side-by-side name it glides from did. */
+        .cq-row-name > span { padding: 0 2px; }
         /* Dims shown all at once by a mode ("s" side by side, "q" qMRI maps). */
         #info .dim-spread-set, #info .dim-mode-letter { color: #a78bfa; -webkit-text-fill-color: #a78bfa; }
         /* Across: the ↓ glyph turned (the → glyph is small and low in monospace fonts). */
@@ -4451,6 +4463,12 @@
         }
         .q-dim-popup-btn.only,
         .q-dim-popup-btn:disabled { opacity: 0.6; cursor: default; }
+        .q-dim-popup-foot {
+            margin-top: -10px; text-align: center; line-height: 1.5;
+            font: 11px 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            color: color-mix(in srgb, var(--text) 55%, var(--muted));
+        }
+        .q-dim-popup-foot b { font-weight: 650; color: var(--text); }
         .qmri-synth-param-popover {
             display: grid; grid-template-columns: 1fr; gap: 7px; padding: 7px 8px;
             width: 100%; box-sizing: border-box; margin-top: 4px;
@@ -6080,7 +6098,6 @@
             <div id="uni-picker-footer"><span id="uni-picker-mem"></span><span>esc closes</span></div>
         </div>
     </div>
-    <div id="help-hint" title="Help and menu" aria-label="Help and menu"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect x="11" y="2" width="3" height="3" fill="#c77dff"/><rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect x="2" y="11" width="3" height="3" fill="#4895ef"/><rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect x="11" y="11" width="3" height="3" fill="#f8961e"/></svg></div>
     <div id="link-hint" role="button" tabindex="-1" title="Linked: slices follow other linked tabs · click to unlink" aria-label="Unlink this tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1.2-1.2"/></svg></div>
     <div id="preferences-hint" title="Preferences" aria-label="Preferences"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 9 19.37a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15 1.7 1.7 0 0 0 3.08 14H3v-4h.08A1.7 1.7 0 0 0 4.63 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63 1.7 1.7 0 0 0 10 3.08V3h4v.08A1.7 1.7 0 0 0 15 4.63a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9 1.7 1.7 0 0 0 20.92 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15z"></path></svg></div>
     <div id="qmri-hint" title="qMRI options"></div>
@@ -6152,6 +6169,7 @@
         </div>
     </div>
 </div>
+    <div id="help-hint" title="Help and menu" aria-label="Help and menu"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect x="11" y="2" width="3" height="3" fill="#c77dff"/><rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect x="2" y="11" width="3" height="3" fill="#4895ef"/><rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect x="11" y="11" width="3" height="3" fill="#f8961e"/></svg></div>
 <div id="cmd-palette">
     <div id="cmd-palette-box">
         <input id="cmd-palette-input" type="text" placeholder="Type a command…" autocomplete="off" spellcheck="false">
@@ -6212,6 +6230,8 @@
         const DEFAULT_ORTHO_LAYOUT = __DEFAULT_ORTHO_LAYOUT__;
         const DEFAULT_DIMBAR_MODE = __DEFAULT_DIMBAR_MODE__;
         const DEFAULT_TURN_ANIMATION = __DEFAULT_TURN_ANIMATION__;
+        const DEFAULT_QMRI_START = __DEFAULT_QMRI_START__;
+        const DEFAULT_QMRI_MAPS = __DEFAULT_QMRI_MAPS__;
         // The array's description, written into the page by the server when it
         // already knew it. Saves waiting for the same thing to arrive over the
         // WebSocket before the first frame can be requested. null whenever the
@@ -7984,8 +8004,9 @@
             const cbWrap = document.getElementById('mv-cb-wrap');
             const ready = mvViews.filter(v => v && v.lastW && v.lastH);
             const labelH = ready.length ? (Math.max(...ready.map(v => v.label ? v.label.offsetHeight : 0)) + 5 + 8) : 28;
-            const cbH = _mvCbLayoutH(cbWrap);
-            const uiReserveH = uiReserveV() + (cbH + labelH + MV_COLORBAR_BOTTOM_CLEARANCE) * (1 - _crossfadeCollapseP);
+            // Judged on the normal layout in every state, so v picks the same layout in immersive.
+            const cbH = cbWrap ? cbWrap.offsetHeight - (cbWrap.classList.contains('cb-has-ticks') ? 13 : 0) : 30;
+            const uiReserveH = Math.max(NORMAL_UI_RESERVE_FLOOR, _normalUiReserveV()) + cbH + labelH + MV_COLORBAR_BOTTOM_CLEARANCE;
             const profile = _layoutViewportProfile({
                 totalW: window.innerWidth - 80,
                 totalH: window.innerHeight - uiReserveH,
@@ -8174,6 +8195,98 @@
 
         let _qmriOptionsPinned = false;
 
+        // What qMRI opens with: maps and synthetic contrasts by name (Preferences;
+        // T1, T2, PD unless set). "picker": q first shows the picker with those
+        // ticked, q or Enter then opens them; "straight": q opens them at once.
+        let _qmriStartMode = DEFAULT_QMRI_START === 'straight' ? 'straight' : 'picker';
+        let _qmriStartNames = Array.isArray(DEFAULT_QMRI_MAPS) && DEFAULT_QMRI_MAPS.length ? DEFAULT_QMRI_MAPS : ['t1', 't2', 'pd'];
+        function _qmriStartChoice(n) {
+            const roles = QMRI_ROLES[n] || [];
+            const named = roles.map((r, i) => _qmriStartNames.includes(r) ? i : -1).filter(i => i >= 0);
+            const core = (QMRI_COLORMAPS[n] || []).map((c, i) => QMRI_DEFAULT_HIDDEN.has(c) ? -1 : i).filter(i => i >= 0);
+            const synthOk = roles.includes('t1') && roles.includes('t2') && roles.includes('pd');
+            return {
+                maps: named.length ? named : core,
+                synth: synthOk ? QMRI_SYNTH_ORDER.filter(id => _qmriStartNames.includes(id)) : [],
+            };
+        }
+        // Maps for a fresh entry: the picker's choice (once), else the start maps.
+        let _qmriEntryMaps = null;
+        function _qmriInitialMaps(n) {
+            const picked = _qmriEntryMaps && _qmriEntryMaps.n === n ? _qmriEntryMaps.maps : null;
+            _qmriEntryMaps = null;
+            const maps = picked || _qmriStartChoice(n).maps;
+            return maps.length ? [...maps] : null;
+        }
+        function _qmriApplyStartSynth(ids) {
+            for (const id of QMRI_SYNTH_ORDER) if (_qmriSyntheticState[id]) _qmriSyntheticState[id].enabled = ids.includes(id);
+            _qmriSyntheticEnabled = _qmriSyntheticActiveIds().length > 0;
+        }
+
+        // The picker shown by q before qMRI opens. Same panel as hold-q in qMRI.
+        let _qmriChooser = null;  // { dim, n, maps: Set, synth: Set } while it is open
+        function _qmriChooserOpen() {
+            const dim = _pickQmriDim();
+            if (dim < 0) return;
+            const n = shape[dim];
+            const start = _qmriStartChoice(n);
+            _qmriChooser = { dim, n, maps: new Set(start.maps), synth: new Set(start.synth) };
+            _qmriChooserRender();
+        }
+        function _qmriChooserRender() {
+            const c = _qmriChooser;
+            if (!c) return;
+            const popup = _ensureQmriDimbarPopup();
+            const roles = QMRI_ROLES[c.n] || [];
+            const synthOk = roles.includes('t1') && roles.includes('t2') && roles.includes('pd') && !compareActive;
+            const mapButtons = QMRI_COLORMAPS[c.n].map((cmap, i) => {
+                const on = c.maps.has(i), only = on && c.maps.size === 1;
+                return `<button type="button" class="q-dim-popup-btn ${on ? 'on' : 'off'}${only ? ' only' : ''}" data-qmri-map="${i}"${only ? ' disabled' : ''}>${QMRI_LABELS[cmap] || cmap}</button>`;
+            }).join('');
+            const synthButtons = QMRI_SYNTH_ORDER.map(id => {
+                const on = c.synth.has(id);
+                return `<button type="button" class="q-dim-popup-btn ${on ? 'on' : 'off'}" data-qmri-synth="${id}"${synthOk ? '' : ' disabled'}>${QMRI_SYNTH_PRESETS[id].label}</button>`;
+            }).join('');
+            popup.innerHTML = `<div class="q-dim-popup-panel q-dim-chooser"><span class="q-dim-popup-section"><span class="q-dim-popup-title">Quantitative parameters</span><span class="q-dim-popup-row">${mapButtons}</span></span><span class="q-dim-popup-section"><span class="q-dim-popup-title">Synthetised contrasts</span><span class="q-dim-popup-row">${synthButtons}</span></span><div class="q-dim-popup-foot"><b>q</b> or <b>Enter</b> shows them<br>Hold <b>q</b> to change afterwards</div></div>`;
+            popup.querySelectorAll('[data-qmri-map]').forEach(btn => {
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    const i = Number(btn.dataset.qmriMap);
+                    if (c.maps.has(i)) { if (c.maps.size > 1) c.maps.delete(i); } else c.maps.add(i);
+                    _qmriChooserRender();
+                };
+            });
+            popup.querySelectorAll('[data-qmri-synth]').forEach(btn => {
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    if (btn.disabled) return;
+                    const id = btn.dataset.qmriSynth;
+                    if (c.synth.has(id)) c.synth.delete(id); else c.synth.add(id);
+                    _qmriChooserRender();
+                };
+            });
+            const wasVisible = popup.classList.contains('visible');
+            popup.classList.toggle('no-panel-anim', wasVisible);
+            popup.classList.add('visible');
+            try { popup.focus({ preventScroll: true }); } catch (_) { try { popup.focus(); } catch (_) {} }
+        }
+        function _qmriChooserClose(open) {
+            const c = _qmriChooser;
+            if (!c) return;
+            _qmriChooser = null;
+            const popup = document.getElementById('qmri-dimbar-popup');
+            if (popup) {
+                popup.classList.remove('visible', 'no-panel-anim');
+                popup.innerHTML = '';  // the hold-q picker builds its own panel
+            }
+            if (!open) { _syncSinkFocus(); return; }
+            _qmriEntryMaps = { n: c.n, maps: [...c.maps].sort((a, b) => a - b) };
+            if (!compareActive) _qmriApplyStartSynth([...c.synth]);
+            _lastQmriDim = c.dim;
+            _runCommand('qmri.cycle');
+            _syncSinkFocus();
+        }
+
         function _qmriDimbarPopupHtml() {
             const qDim = _qmriControlDim();
             const n = shape[qDim];
@@ -8210,7 +8323,9 @@
                 popup.setAttribute('aria-label', 'qMRI options');
                 popup.tabIndex = -1;
                 popup.onclick = (e) => {
-                    if (e.target === popup) _hideQmriDimbarPopup(true);
+                    if (e.target !== popup) return;
+                    if (_qmriChooser) _qmriChooserClose(false);
+                    else _hideQmriDimbarPopup(true);
                 };
                 popup.onkeydown = (e) => {
                     if (e.key === 'Escape' || e.key === 'Enter') {
@@ -8230,6 +8345,14 @@
         }
 
         function _qmriPopupKeyClose(e) {
+            if (_qmriChooser) {
+                const plainQ = e.key === 'q' && !e.ctrlKey && !e.metaKey && !e.altKey;
+                if (e.key !== 'Escape' && e.key !== 'Enter' && !plainQ) return;
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                if (!e.repeat) _qmriChooserClose(e.key !== 'Escape');
+                return;
+            }
             const popup = document.getElementById('qmri-dimbar-popup');
             if (!popup || !popup.classList.contains('visible')) return;
             if (e.key !== 'Escape' && e.key !== 'Enter') return;
@@ -8272,12 +8395,51 @@
             document.removeEventListener('keydown', _qmriPopupKeyClose, true);
         }
 
+        // In qMRI, holding q shows the map / contrast picker (and the synthetic
+        // contrast sliders of the hovered pane); a tap of q still leaves qMRI.
+        const _QMRI_Q_HOLD_MS = 220;
+        let _qmriQHeld = false;
+        const _qmriQ = { down: false, timer: null };
+        function _qmriQSetHeld(held) {
+            if (_qmriQHeld === held) return;
+            _qmriQHeld = held;
+            _reconcileQmriAltOptions();
+            _reconcileQmriSynthParamPopovers();
+        }
+        window.addEventListener('keydown', (e) => {
+            if (e.key !== 'q' || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+            if (!(qmriActive || compareQmriActive) || _isEditableActive()) return;
+            // Ours, repeats included: a held q must not reach the q command.
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            if (e.repeat || _qmriQ.down) return;
+            _qmriQ.down = true;
+            clearTimeout(_qmriQ.timer);
+            _qmriQ.timer = setTimeout(() => { _qmriQ.timer = null; if (_qmriQ.down) _qmriQSetHeld(true); }, _QMRI_Q_HOLD_MS);
+        }, true);
+        window.addEventListener('keyup', (e) => {
+            if ((e.key !== 'q' && e.key !== 'Q') || !_qmriQ.down) return;
+            _qmriQ.down = false;
+            const tap = _qmriQ.timer !== null;
+            clearTimeout(_qmriQ.timer);
+            _qmriQ.timer = null;
+            if (tap) { _runCommand('tool.qmriDirect'); _syncSinkFocus(); }
+            else { _qmriQSetHeld(false); _syncSinkFocus(); }
+        }, true);
+        window.addEventListener('blur', () => {
+            _qmriQ.down = false;
+            clearTimeout(_qmriQ.timer);
+            _qmriQ.timer = null;
+            _qmriQSetHeld(false);
+        });
+
         function _reconcileQmriAltOptions() {
+            if (_qmriChooser) return;  // the q picker before qMRI owns the panel
             const active = qmriActive || compareQmriActive;
             if (!active && !_qmriPopupRestoreAfterRebuild) _qmriOptionsPinned = false;
-            if (active && (_obliqueAltHeld || _qmriOptionsPinned)) {
+            if (active && (_qmriQHeld || _qmriOptionsPinned)) {
                 _showQmriDimbarPopup(document.getElementById('qmri-hint') || document.body);
-            } else if (!_obliqueAltHeld || !_qmriPopupRestoreAfterRebuild) {
+            } else if (!_qmriQHeld || !_qmriPopupRestoreAfterRebuild) {
                 _hideQmriDimbarPopup(true);
             }
         }
@@ -8364,7 +8526,6 @@
         // MRI scanner icon based on SVGRepo magnetic-resonance-imaging, CC0:
         // https://www.svgrepo.com/svg/84332/magnetic-resonance-imaging
         const QMRI_MAPS_ICON = `<svg class="q-dim-icon" viewBox="0 0 64 64" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 47V19c0-7.2 5.8-13 13-13h2c7.2 0 13 5.8 13 13v28"/><path d="M24 43V20c0-3.9 3.1-7 7-7h2c3.9 0 7 3.1 7 7v23"/><path d="M14 47h36"/><path d="M8 54h48"/><path d="M30 47h8"/><path d="M38 47l10 7"/><path d="M30 47l-10 7"/><path d="M29 31h-8"/><path d="M43 31h-8"/></g><g fill="currentColor"><circle cx="32" cy="31" r="3.2"/><rect x="17" y="53" width="30" height="4" rx="2"/></g></svg>`;
-        const QMRI_SETTINGS_ICON = `<svg class="q-dim-icon" viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.04.04a2 2 0 1 1-2.83 2.83l-.04-.04A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.06A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.04.04a2 2 0 1 1-2.83-2.83l.04-.04A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3a2 2 0 1 1 0-4h.06A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.04-.04a2 2 0 1 1 2.83-2.83l.04.04A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3a2 2 0 1 1 4 0v.06A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.04-.04a2 2 0 1 1 2.83 2.83l-.04.04A1.7 1.7 0 0 0 19.4 9c.39.15.72.36 1 .6.28.25.66.4 1.1.4H21a2 2 0 1 1 0 4h-.06a1.7 1.7 0 0 0-1.54 1Z"/></g></svg>`;
         const QMRI_SYNTH_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="qmri-synth-brain" x1="3" y1="20" x2="21" y2="4"><stop offset="0" stop-color="#5f5f5f"/><stop offset="0.5" stop-color="#aaaaaa"/><stop offset="1" stop-color="#f0f0f0"/></linearGradient></defs><g fill="none" stroke="url(#qmri-synth-brain)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 18V5"/><path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/><path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5"/><path d="M17.997 5.125a4 4 0 0 1 2.526 5.77"/><path d="M18 18a4 4 0 0 0 2-7.464"/><path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517"/><path d="M6 18a4 4 0 0 1-2-7.464"/><path d="M6.003 5.125a4 4 0 0 0-2.526 5.77"/></g></svg>`;
         let _qmriInlinePositionFrame = 0;
 
@@ -8526,7 +8687,7 @@
 
         function _reconcileQmriSynthParamPopovers() {
             document.querySelectorAll('.qmri-synthetic-pane').forEach(pane => {
-                pane.classList.toggle('show-param-popover', _obliqueAltHeld && pane === _qmriSynthParamHoverPane);
+                pane.classList.toggle('show-param-popover', _qmriQHeld && pane === _qmriSynthParamHoverPane);
             });
         }
 
@@ -9215,8 +9376,8 @@
 
         /** Ortho from the single view: the plane that was on screen is turned
          *  exactly as it was on screen, so the v glide lands on the same picture.
-         *  Big-left also puts it first (the big pane); a row keeps its plane order,
-         *  and so does the compare grid (`keepOrder`). */
+         *  It also goes first (the big pane in big-left, the leftmost one in a row),
+         *  so the name label glides with it; the compare grid keeps its order (`keepOrder`). */
         function _leadWithSingleViewPlane(defs, dims, keepOrder = false) {
             const sliceDir = dims.find(d => d !== dim_x && d !== dim_y);
             if (sliceDir === undefined || !dims.includes(dim_x) || !dims.includes(dim_y)) return;
@@ -9224,7 +9385,7 @@
             if (i < 0) return;
             const def = defs[i];
             Object.assign(def, { dimX: dim_x, dimY: dim_y, flipX: !!flip_x, flipY: !!flip_y });
-            if (!keepOrder && _resolvedOrthoLayoutMode() === 'big-left') defs.unshift(defs.splice(i, 1)[0]);
+            if (!keepOrder) defs.unshift(defs.splice(i, 1)[0]);
         }
 
         // ── View Cycling & Physical Proportions ──
@@ -9522,6 +9683,19 @@
             if (activeDim === other) { _quarterTurnAround(change, boxes, 'flip', null, 1, true); return; }
             const od = [dim_x, dim_y, flip_x, flip_y];
             _quarterTurnAround(change, boxes, 'cube', () => _planeCubeTurn(od), 1, true);
+        }
+        /** j / k on the x or y dim: reverse that axis, with the same mirror
+         *  animation as pressing x / y on it. */
+        function _reverseAxisDir(axis) {
+            _axisAssignAround(axis, () => {
+                if (axis === 'x') flip_x = !flip_x; else flip_y = !flip_y;
+                if (qmriActive) qmriViews.forEach(v => qvDrawFrame(v));
+                else if (compareQmriActive) compareQmriViews.forEach(v => { if (v.lastImageData) v.ctx.putImageData(applyFlips(v.lastImageData, v.lastW, v.lastH), 0, 0); });
+                else if (compareActive) updateView();
+                else if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                if (!compareActive || compareQmriActive) _frameDisplaySeq++;
+                renderInfo(); saveState();
+            });
         }
         /** Cube turn for a view switch (o). The two views share one array
          *  axis; the box rolls about that line on screen. When the shared axis
@@ -10111,6 +10285,17 @@
         const NORMAL_UI_RESERVE_FLOOR = 44;
         const MV_COLORBAR_BOTTOM_CLEARANCE = 42;
 
+        // The bottom reserve of the normal (non-immersive) layout, whatever state we are in.
+        function _normalUiReserveV() {
+            let h = 14; // wrapper padding
+            const el = document.getElementById('info');
+            if (el && el.offsetHeight) {
+                const s = getComputedStyle(el);
+                h += el.offsetHeight + parseFloat(s.marginTop) + parseFloat(s.marginBottom);
+            }
+            return h;
+        }
+
         function uiReserveV() {
             if (_fullscreenActive && _crossfadeP <= 0) {
                 // In fullscreen mode (not crossfading): chrome is overlaid, so no reserve
@@ -10120,14 +10305,7 @@
             if (_scrubDetached && _scrubState && _scrubState.frozenReserve > 0) {
                 return _scrubState.frozenReserve * (1 - _crossfadeP);
             }
-            let h = 14; // wrapper padding
-            for (const id of ['info']) {
-                const el = document.getElementById(id);
-                if (el && el.offsetHeight) {
-                    const s = getComputedStyle(el);
-                    h += el.offsetHeight + parseFloat(s.marginTop) + parseFloat(s.marginBottom);
-                }
-            }
+            const h = _normalUiReserveV();
             // During crossfade, interpolate from the floored reserve to 0 over the
             // full p range. Using Math.max(NORMAL_UI_RESERVE_FLOOR, h) ensures we start from the same
             // value the function returns outside crossfade, avoiding a jump at p→0+.
@@ -10139,32 +10317,8 @@
             return Math.max(NORMAL_UI_RESERVE_FLOOR, h);
         }
 
-        function fixWrapperAlignment() {
-            // Center content in the viewport-minus-bottom-reserve zone so the
-            // fixed-position colorbar + eggs always have room below the canvas.
-            const wrapper = document.getElementById('wrapper');
-            const viewerRow = document.getElementById('viewer-row');
-
-            // During pinch scrub, chrome is detached from flow. Drive paddingTop
-            // from the frozen pre-scrub value toward 0 in sync with the canvas
-            // growth, then bail — no childrenH recalculation while scrubbing.
-            if (_scrubDetached && _scrubState) {
-                const pt = Math.max(0, Math.round(_scrubState.frozenVpTop * (1 - _crossfadeP)));
-                wrapper.style.paddingTop = pt + 'px';
-                if (viewerRow) {
-                    // frozenVpTop already holds the row's place for the side-by-side views.
-                    const rowPad = (compareActive || multiViewActive) ? 0 : Math.max(0, Math.round(8 * (1 - _crossfadeP)));
-                    viewerRow.style.paddingTop = rowPad + 'px';
-                    viewerRow.style.paddingBottom = rowPad + 'px';
-                }
-                wrapper.style.justifyContent = 'flex-start';
-                return;
-            }
-            if (viewerRow) {
-                viewerRow.style.removeProperty('padding-top');
-                viewerRow.style.removeProperty('padding-bottom');
-            }
-
+        // Height of the wrapper's in-flow content (fixed chrome excluded).
+        function _wrapperFlowHeight(wrapper) {
             let childrenH = 0;
             for (const child of wrapper.children) {
                 const s = getComputedStyle(child);
@@ -10189,6 +10343,55 @@
                 }
                 childrenH += h + parseFloat(s.marginTop || 0) + parseFloat(s.marginBottom || 0);
             }
+            return childrenH;
+        }
+
+        // In-flow height that leaves the page flow once immersive settles: the
+        // ortho colour bar floats on the panes there.
+        function _immersiveLeavesFlowH() {
+            if (!multiViewActive) return 0;
+            const cb = document.getElementById('mv-cb-wrap');
+            const el = cb?.closest('.oblique-flip-wrap') || cb;
+            if (!el || !el.offsetHeight) return 0;
+            const s = getComputedStyle(el);
+            if (s.position === 'fixed' || s.position === 'absolute') return 0;
+            const gap = el.previousElementSibling ? parseFloat(getComputedStyle(el.parentElement).rowGap) || 0 : 0;
+            return el.offsetHeight + parseFloat(s.marginTop || 0) + parseFloat(s.marginBottom || 0) + gap;
+        }
+
+        function fixWrapperAlignment() {
+            // Center content in the viewport-minus-bottom-reserve zone so the
+            // fixed-position colorbar + eggs always have room below the canvas.
+            const wrapper = document.getElementById('wrapper');
+            const viewerRow = document.getElementById('viewer-row');
+
+            // During pinch scrub, chrome is detached from flow. Drive paddingTop
+            // from the frozen pre-scrub value toward 0 in sync with the canvas
+            // growth, then bail — no childrenH recalculation while scrubbing.
+            if (_scrubDetached && _scrubState) {
+                // Towards where immersive centres the content, not the top: views that
+                // cannot grow (width-limited) would rise and then drop when it settles.
+                // The single view is placed by hand while scrubbing: it keeps heading to 0.
+                const sideBySide = compareActive || multiViewActive || qmriActive;
+                const endH = sideBySide ? _wrapperFlowHeight(wrapper) - _immersiveLeavesFlowH() : 0;
+                const endPt = (isInlineEmbed || !sideBySide) ? 0 : Math.max(0, Math.floor((window.innerHeight - endH) / 2));
+                const pt = Math.max(0, Math.round(_scrubState.frozenVpTop * (1 - _crossfadeP) + endPt * _crossfadeP));
+                wrapper.style.paddingTop = pt + 'px';
+                if (viewerRow) {
+                    // frozenVpTop already holds the row's place for the side-by-side views.
+                    const rowPad = (compareActive || multiViewActive) ? 0 : Math.max(0, Math.round(8 * (1 - _crossfadeP)));
+                    viewerRow.style.paddingTop = rowPad + 'px';
+                    viewerRow.style.paddingBottom = rowPad + 'px';
+                }
+                wrapper.style.justifyContent = 'flex-start';
+                return;
+            }
+            if (viewerRow) {
+                viewerRow.style.removeProperty('padding-top');
+                viewerRow.style.removeProperty('padding-bottom');
+            }
+
+            const childrenH = _wrapperFlowHeight(wrapper);
             // (freeze moved to _scrubDetached guard above — covers both pinch and key-press)
             // Smooth the bottom reserve using _crossfadeCollapseP so paddingTop is
             // continuous across the _fullscreenActive flip. Margins of the
@@ -11095,7 +11298,9 @@
             // numbers) and folders; hidden while names stay on one line.
             const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;')
                 .replace(/[_\-\s()]+/g, '$&<wbr>')
-                .replace(/[\/\\]+/g, '$&<span class="av-name-br"></span>');
+                .replace(/[\/\\]+/g, '$&<span class="av-name-br"></span>')
+                // "1 · name" as a side-by-side pane writes it (.hint-sep).
+                .replace(/ <wbr>· <wbr>/g, '<span class="av-name-sep"> · </span>');
             return runs.filter(([t]) => t)
                 .map(([t, shared]) => shared ? `<span class="av-name-shared">${esc(t)}</span>` : esc(t))
                 .join('');
@@ -12495,9 +12700,6 @@
                 if (!(m > 0) || !Number.isFinite(m)) return 2;
                 return Math.max(0, Math.min(2, 3 - Math.floor(Math.log10(m))));
             };
-            const minDecimals = Math.max(0, Math.min(cap, Math.trunc(
-                options.minDecimals ?? _defaultMinDecimals(finite)
-            )));
             const ordinaryLo = options.ordinaryLo ?? 1e-4;
             const ordinaryHi = options.ordinaryHi ?? 1e6;
             const fallback = {
@@ -12515,6 +12717,11 @@
             const exponent = useScaled ? Math.floor(Math.log10(maxAbs)) : null;
             const scale = useScaled ? Math.pow(10, exponent) : 1;
             const scaled = finite.map(v => v / scale);
+            // From the numbers as written: with a x10^n suffix they are 1..10,
+            // so 1.27e6 reads "1.27 x10^6", not "1 x10^6".
+            const minDecimals = Math.max(0, Math.min(cap, Math.trunc(
+                options.minDecimals ?? _defaultMinDecimals(scaled)
+            )));
             const uniqueScaled = [...new Set(scaled.map(v => v.toPrecision(15)))].map(Number).filter(Number.isFinite).sort((a, b) => a - b);
             let minDiff = Infinity;
             for (let i = 1; i < uniqueScaled.length; i++) {
@@ -13984,17 +14191,12 @@
                 if (!Number.isFinite(this._labelVmin)) this._labelVmin = vmin;
                 if (!Number.isFinite(this._labelVmax)) this._labelVmax = vmax;
                 const targetLabelValues = [vmin, vmax];
-                // Use the SAME formatter at rest and during a drag.  If the two
-                // states derived different decimal counts (rest = window range,
-                // drag = window+histogram range), the same bound value would
-                // render at a different width across the drag boundary and the
-                // centered wrap would reflow the instant the drag started.
-                let labelFormatter = this._dragLabelFormatter;
-                if (!labelFormatter && this._histData) {
-                    const win = this.opts.getWindow();
-                    labelFormatter = _cbLabelFormatter(this._histData.vmin, this._histData.vmax, win.vmin, win.vmax);
-                }
-                if (!labelFormatter) labelFormatter = formatValueGroup(targetLabelValues);
+                // At rest the digits follow the window alone, in every view.
+                // They used to follow the data bounds too whenever a histogram
+                // happened to be loaded, so the same window read "0.02" in the
+                // normal view and "0.021" in ortho, and the bar between the
+                // numbers changed length on the way in.
+                const labelFormatter = this._dragLabelFormatter || formatValueGroup(targetLabelValues);
                 const formatLabel = this.opts.formatLabel;
                 const defaultLabel = (value) => _cbFmt(value, targetLabelValues, labelFormatter);
                 // _signPad reserves the sign's width so crossing zero
@@ -14028,18 +14230,15 @@
                         this.vminLabel.style.minWidth = '';
                         this.vmaxLabel.style.minWidth = '';
                         const natMw = Math.max(this.vminLabel.offsetWidth, this.vmaxLabel.offsetWidth);
-                        // Also floor at the widest value a drag can surface, so
-                        // the rest state and the drag state reserve the SAME
-                        // label width.  The island is center-aligned, so any
-                        // width difference between the two states would shift
-                        // the canvas by half the difference the instant a drag
-                        // begins (the wrap re-centers); agreeing on width
-                        // removes that one-time jump.
-                        // The high-water mark (and the cached reserve format)
-                        // keep the width from shrinking while the window moves,
-                        // but they belong to one data range: a new array starts
-                        // over, otherwise one wide array left every later one
-                        // padded.
+                        // The rest width is the numbers' own width, as in the
+                        // normal view: a floor that depended on the loaded
+                        // histogram made the same bar a different length from
+                        // one view to the next.  A drag reserves its own room
+                        // (_freezeDragLabelWidths) and locks the canvas column.
+                        // The high-water mark keeps the width from shrinking
+                        // while the window moves, but it belongs to one data
+                        // range: a new array starts over, otherwise one wide
+                        // array left every later one padded.
                         const hd = this._histData;
                         const hwmKey = hd ? `${hd.vmin}|${hd.vmax}` : null;
                         if (hwmKey !== this._labelWidthHwmKey) {
@@ -14047,8 +14246,7 @@
                             this._labelWidthHwmPx = 0;
                             this._reserveFormatter = null;
                         }
-                        const reserveWm = this._reserveWidestLabelPx();
-                        const restFloor = Math.max(natMw, reserveWm);
+                        const restFloor = natMw;
                         if (restFloor > this._labelWidthHwmPx) this._labelWidthHwmPx = restFloor;
                         const stableWidth = Math.max(1, Math.ceil(this._labelWidthHwmPx)) + 'px';
                         this.vminLabel.style.minWidth = stableWidth;
@@ -14323,6 +14521,10 @@
                     if (!labelEl) return;
                     let clickTimer = null;
                     labelEl.dataset.cbBound = which;
+                    // Whether the minus slot is empty: the hover highlight leaves it out.
+                    const syncSignPad = () => labelEl.classList.toggle('cb-sign-padded', labelEl.textContent.startsWith('\u2007'));
+                    syncSignPad();
+                    new MutationObserver(syncSignPad).observe(labelEl, { childList: true, characterData: true, subtree: true });
                     labelEl.addEventListener('click', (e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -19935,14 +20137,18 @@
             const wasHidden = eggsEl.style.display === 'none';
             // Preset cycling replaces the badge contents in renderEggs(); opening
             // the histogram alone must leave the normal transient badges visible.
+            // Opacity is left alone: the immersive fade owns it.
             eggsEl.style.display = '';
-            eggsEl.style.opacity = '';
             if (wasHidden) positionEggs();
         }
 
+        // Set while the ortho glide morphs the pane the pills anchor to: its measured
+        // place is mid-flight then, not where it lands.
+        let _eggsGlideHold = false;
         function positionEggs() {
             const el = document.getElementById('mode-eggs');
             if (!el || !el.innerHTML) return;
+            if (_eggsGlideHold) return;
             // Don't reposition while eggs are hidden during histogram expand/collapse —
             // wrap height is animated and would give a wrong anchor.
             if (el.style.display === 'none') return;
@@ -22471,12 +22677,6 @@
                 if (typeof _mvRecomputeCrosshairTarget === 'function') {
                     _mvRecomputeCrosshairTarget();
                 }
-                if (typeof _reconcileQmriSynthParamPopovers === 'function') {
-                    _reconcileQmriSynthParamPopovers();
-                }
-                if (typeof _reconcileQmriAltOptions === 'function') {
-                    _reconcileQmriAltOptions();
-                }
             }
         }
         window.addEventListener('keydown',   _updateAltState, true);
@@ -22488,12 +22688,6 @@
                 _obliqueAltHeld = false;
                 _reconcileObliqueFlip();
                 _reconcileMvOrientationVisibility();
-                if (typeof _reconcileQmriSynthParamPopovers === 'function') {
-                    _reconcileQmriSynthParamPopovers();
-                }
-                if (typeof _reconcileQmriAltOptions === 'function') {
-                    _reconcileQmriAltOptions();
-                }
             }
         });
 
@@ -23829,9 +24023,8 @@
             const name = (Array.isArray(caseNames) && Number.isInteger(colDim) && colDim >= 0 && colDim < shape.length)
                 ? caseNames[indices[colDim]] : null;
             const text = name == null ? null : String(name);
-            // Outside the panes where they sit in a row/grid with labels of their own.
-            const outside = text != null && (qmriActive || qmriMvActive
-                || (multiViewActive && _resolvedOrthoLayoutMode() === 'horizontal'));
+            // Outside the panes only in the qMRI rows, which have labels of their own.
+            const outside = text != null && (qmriActive || qmriMvActive);
             const out = document.getElementById('case-name-out');
             if (out) {
                 out.classList.toggle('visible', outside);
@@ -26953,6 +27146,8 @@
             'viewer.ortho_layout': ['Ortho-view layout', 'Ortho view (v) shows three planes of a volume at once. This sets how they are arranged when it opens. Responsive picks what fits your window best.'],
             'viewer.turn_animation': ['Turn animation', 'How the image moves when you press r (rotate), t (transpose) or o (next view). Rotate shows the image turning. Fade blends from the old view to the new one.'],
             'viewer.dimbar_mode': ['Dimbar mode', 'The row above the image lists the dimensions and the current slice. Extended also shows the size of each dimension, such as 11/20 instead of 11. Press Shift+D to switch while you work.'],
+            'viewer.qmri_start': ['q opens qMRI', 'Picker: q first shows which maps and contrasts to open, with your qMRI maps ticked; q or Enter opens them. Straight: q opens your qMRI maps at once. In qMRI, hold q to change them either way.'],
+            'viewer.qmri_maps': ['qMRI maps', 'What qMRI opens with. Type names separated by commas: t1, t2, pd, b1, db0, phase for maps; t1w, t2w, pdw, t2flair, stir, psir for synthetic contrasts. Leave empty for t1, t2, pd.'],
             'window.terminal': ['Terminal window', 'When you start arrayview from a normal terminal.'],
             'window.vscode': ['VS Code window', 'When you start arrayview from a VS Code terminal.'],
             'window.jupyter': ['Jupyter window', 'When you open an array from a notebook.'],
@@ -26971,6 +27166,8 @@
                 inline: 'Inline notebook',
                 none: 'No window',
                 horizontal: 'Three in a row',
+                picker: 'Picker first',
+                straight: 'Straight to the maps',
                 'big-left': 'One big, two small',
             };
             return labels[value] || String(value).replaceAll('-', ' ').replace(/\b\w/g, ch => ch.toUpperCase());
@@ -27028,6 +27225,10 @@
                 _reconcileDimbarExtent();
             } else if (key === 'turn_animation') {
                 turnAnimationFade = value === 'fade';
+            } else if (key === 'qmri_start') {
+                _qmriStartMode = value === 'straight' ? 'straight' : 'picker';
+            } else if (key === 'qmri_maps') {
+                _qmriStartNames = Array.isArray(value) && value.length ? value.map(v => String(v).toLowerCase()) : ['t1', 't2', 'pd'];
             }
         }
 
@@ -27063,7 +27264,8 @@
                 control = document.createElement('input');
                 control.type = 'text';
                 control.value = Array.isArray(value) ? value.join(', ') : (value || '');
-                control.placeholder = spec === 'non-empty list of names' ? 'gray, viridis, magma' : 'Not set';
+                control.placeholder = path === 'viewer.qmri_maps' ? 't1, t2, pd'
+                    : spec === 'non-empty list of names' ? 'gray, viridis, magma' : 'Not set';
             }
             control.className = 'preferences-control';
             control.dataset.preference = path;
@@ -32356,17 +32558,9 @@
                             saveState();
                         }
                     } else if (activeDim === dim_x) {
-                        flip_x = !flip_x;
-                        if (qmriActive) qmriViews.forEach(v => qvDrawFrame(v));
-                        else if (compareQmriActive) compareQmriViews.forEach(v => { if (v.lastImageData) v.ctx.putImageData(applyFlips(v.lastImageData, v.lastW, v.lastH), 0, 0); });
-                        else if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
-                        renderInfo(); saveState();
+                        _reverseAxisDir('x');
                     } else if (activeDim === dim_y) {
-                        flip_y = !flip_y;
-                        if (qmriActive) qmriViews.forEach(v => qvDrawFrame(v));
-                        else if (compareQmriActive) compareQmriViews.forEach(v => { if (v.lastImageData) v.ctx.putImageData(applyFlips(v.lastImageData, v.lastW, v.lastH), 0, 0); });
-                        else if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
-                        renderInfo(); saveState();
+                        _reverseAxisDir('y');
                     } else {
                         lastDirection = 1;
                         const nextIndex = Math.min(shape[activeDim] - 1, indices[activeDim] + 1);
@@ -32406,17 +32600,9 @@
                             saveState();
                         }
                     } else if (activeDim === dim_x) {
-                        flip_x = !flip_x;
-                        if (qmriActive) qmriViews.forEach(v => qvDrawFrame(v));
-                        else if (compareQmriActive) compareQmriViews.forEach(v => { if (v.lastImageData) v.ctx.putImageData(applyFlips(v.lastImageData, v.lastW, v.lastH), 0, 0); });
-                        else if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
-                        renderInfo(); saveState();
+                        _reverseAxisDir('x');
                     } else if (activeDim === dim_y) {
-                        flip_y = !flip_y;
-                        if (qmriActive) qmriViews.forEach(v => qvDrawFrame(v));
-                        else if (compareQmriActive) compareQmriViews.forEach(v => { if (v.lastImageData) v.ctx.putImageData(applyFlips(v.lastImageData, v.lastW, v.lastH), 0, 0); });
-                        else if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
-                        renderInfo(); saveState();
+                        _reverseAxisDir('y');
                     } else {
                         lastDirection = -1;
                         const nextIndex = Math.max(0, indices[activeDim] - 1);
@@ -32478,7 +32664,17 @@
                 title: 'Open qMRI',
                 when: [],
                 run: (ctx, e) => {
+                    if (e && e.repeat) return;
                     if (_selectedToolDrawerId() === 'qmri') closeToolPanel();
+                    if (qmriActive || compareQmriActive) { commands['qmri.cycle'].run(ctx, e); return; }
+                    // Leaving 3-plane qMRI is not an entry; side-by-side 3-plane has no qMRI.
+                    if (qmriMvActive || compareMvActive) { commands['qmri.cycle'].run(ctx, e); return; }
+                    if (_qmriStartMode === 'picker') { _qmriChooserOpen(); return; }
+                    if (!compareActive) {
+                        const dim = _pickQmriDim();
+                        if (dim < 0) return;
+                        _qmriApplyStartSynth(_qmriStartChoice(shape[dim]).synth);
+                    }
                     commands['qmri.cycle'].run(ctx, e);
                 },
             },
@@ -32955,8 +33151,7 @@
                         title: 'Direct', columnBreak: true,
                         entries: [
                             { key: 'Shift+S', action: 'Save', hint: 'export screenshot, GIF, array, URL, and code options' },
-                            { key: 'q', action: 'qMRI', hint: 'hold Alt/Option for maps and contrasts' },
-                            { key: 'Alt/Option', action: 'qMRI options', hint: 'hold while qMRI is active' },
+                            { key: 'q', action: 'qMRI', hint: 'pick maps, then q or Enter opens them · in qMRI: tap to leave, hold to change maps and contrasts' },
                             { key: 's', action: 'Side by side', hint: 'pick how many panes of the active dim · in side by side: s goes back, hold s for another count' },
                             { key: 'X', action: 'Compare operation', hint: 'cycle center compare operations for a valid two-pane pair' },
                             { key: 'C', action: 'Crop', hint: 'choose a spatial range to keep' },
@@ -32974,7 +33169,7 @@
                     {
                         title: 'Navigation',
                         entries: [
-                            { key: 'q', action: 'Enter or exit qMRI' },
+                            { key: 'q', action: 'Enter or exit qMRI', hint: 'first shows which maps to open (T₁, T₂, PD ticked); q or Enter opens them · Preferences can skip this' },
                             { key: '← →', action: 'Step through slices' },
                             { key: 'z', action: 'Mosaic — tile all parameter maps' },
                             { key: 'v', action: '3-plane view — three views per map' },
@@ -32983,7 +33178,7 @@
                     {
                         title: 'Map visibility',
                         entries: [
-                            { key: 'Alt/Option', action: 'Choose maps and contrasts', hint: 'hold; at least one parameter map stays visible' },
+                            { key: 'q', action: 'Choose maps and contrasts', hint: 'hold; at least one parameter map stays visible' },
                         ]
                     },
                     {
@@ -38848,10 +39043,7 @@
             // Determine which maps to show
             const allCmaps = QMRI_COLORMAPS[n];
             const allIndices = Array.from({length: n}, (_, i) => i);
-            if (_qmriVisibleMaps === null) {
-                const core = allIndices.filter(i => !QMRI_DEFAULT_HIDDEN.has(allCmaps[i]));
-                _qmriVisibleMaps = core.length > 0 ? core : null;
-            }
+            if (_qmriVisibleMaps === null) _qmriVisibleMaps = _qmriInitialMaps(n);
             const mapIndices = (_qmriVisibleMaps !== null) ? _qmriVisibleMaps : allIndices;
             const cmaps = mapIndices.map(i => allCmaps[i]);
             const nMaps = cmaps.length;
@@ -39574,10 +39766,7 @@
             // Determine which maps to show
             const allCmaps = QMRI_COLORMAPS[n];
             const allIndices = Array.from({length: n}, (_, i) => i);
-            if (_qmriVisibleMaps === null) {
-                const core = allIndices.filter(i => !QMRI_DEFAULT_HIDDEN.has(allCmaps[i]));
-                _qmriVisibleMaps = core.length > 0 ? core : null;
-            }
+            if (_qmriVisibleMaps === null) _qmriVisibleMaps = _qmriInitialMaps(n);
             const mapIndices = (_qmriVisibleMaps !== null) ? _qmriVisibleMaps : allIndices;
             const cmaps = mapIndices.map(i => allCmaps[i]);
             const nMaps = cmaps.length;
@@ -43002,6 +43191,8 @@
                     + '</div><div class="spread-picker__hint">Afterwards, hover over a pane and<br>press <b>[</b> or <b>]</b> to change its index</div>';
                 p.built = key;
             }
+            // A strip just built has no "before" yet: commit its hidden style so it fades in.
+            if (p.active && !el.classList.contains('is-visible')) void el.offsetWidth;
             el.classList.toggle('is-visible', p.active);
             el.setAttribute('aria-hidden', p.active ? 'false' : 'true');
             if (p.active !== p.shown) {
@@ -43188,7 +43379,10 @@
         // in between stays hidden (its colour bar too), or it peeks out from behind the copies of
         // the old view; the dim bar stays where it was instead of jumping to the plain split's
         // place and back.
+        // The qMRI hint stays up while qMRI is only passing through the plain split.
+        let _qmriHintHold = false;
         async function _splitThenRows(dim, leave, rows) {
+            _qmriHintHold = qmriActive;
             const info = document.getElementById('info');
             const infoCopy = _dimBarCopy(info);
             const holds = [_glideHold(document.getElementById('compare-view-wrap')), _glideHold(_slimCb()), infoCopy && _glideHold(info)];
@@ -43198,6 +43392,7 @@
             } finally {
                 holds.forEach(h => h?.cancel());
                 infoCopy?.remove();
+                if (_qmriHintHold) { _qmriHintHold = false; _reconcileUI(); }
             }
         }
 
@@ -43256,41 +43451,150 @@
             _liftedBars = [];
         }
 
-        // Still copy of the dim bar as it looks now, for its old text to fade out in.
+        // Inline-style `to` (a clone of `from`) with `from`'s computed look, children too.
+        // Inside the bar, important: the page's !important colour rules would blank the slashes.
+        function _dressLike(from, to, priority = '') {
+            const cs = getComputedStyle(from);
+            for (const prop of cs) to.style.setProperty(prop, cs.getPropertyValue(prop), priority);
+            to.style.setProperty('transition', 'none', priority);
+            [...from.children].forEach((c, i) => to.children[i] && _dressLike(c, to.children[i], 'important'));
+        }
+
+        // The dim bar as pieces that can be matched across a switch: each label's
+        // value (index or axis letter), slash, size and flip sign, and the separators.
+        // Keyed by dim, so "103" -> "x" on dim 0 is one piece that changes text.
+        function _dimBarTokens(root) {
+            const out = [], seen = new Map();
+            const add = (el, key) => {
+                const n = seen.get(key) || 0;
+                seen.set(key, n + 1);
+                out.push({ el, key: n ? `${key}#${n}` : key, text: el.textContent });
+            };
+            let lastDim = '^';
+            [...root.children].forEach((c, i) => {
+                if (c.classList.contains('dim-label')) {
+                    lastDim = c.dataset.dim ?? `i${i}`;
+                    if (!c.children.length) { add(c, `d${lastDim}`); return; }
+                    [...c.children].forEach(t => {
+                        const role = t.classList.contains('dim-idx') || t.classList.contains('dim-axis-letter') ? 'val' : (t.classList[0] || t.tagName);
+                        add(t, `d${lastDim}:${role}`);
+                    });
+                } else if (c.classList.contains('dim-sep')) add(c, `s${lastDim}`);
+                else add(c, `x:${c.classList[0] || c.tagName}`);
+            });
+            return out;
+        }
+
+        // What a bar piece looks like, to tell a piece that only moves from one that
+        // changes colour or weight (read off the live bar: a detached copy has no style).
+        const _dimBarLook = (el) => { const cs = getComputedStyle(el); return [cs.color, cs.backgroundImage, cs.fontWeight, cs.fontSize].join('|'); };
+
+        // Still copy of the dim bar as it looks now. It stands in for the bar until
+        // _dimBarCrossfade takes it apart into pieces that travel to their new places.
         function _dimBarCopy(info) {
             const r = info?.getBoundingClientRect();
             if (!r?.width) return null;
-            // Inside the bar, important: the page's !important colour rules would blank the slashes.
-            const dress = (from, to, priority = '') => {
-                const cs = getComputedStyle(from);
-                for (const prop of cs) to.style.setProperty(prop, cs.getPropertyValue(prop), priority);
-                to.style.setProperty('transition', 'none', priority);
-                [...from.children].forEach((c, i) => dress(c, to.children[i], 'important'));
-            };
             const g = info.cloneNode(true);
-            dress(info, g);
+            _dressLike(info, g);
             g.removeAttribute('id');
             g.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
             g.setAttribute('aria-hidden', 'true');
             Object.assign(g.style, { position: 'fixed', left: `${r.left}px`, top: `${r.top}px`, margin: '0', right: 'auto', bottom: 'auto',
                 zIndex: '42', pointerEvents: 'none', transform: 'none', translate: 'none', opacity: '1' });
+            const real = _dimBarTokens(info);
+            g._tokens = _dimBarTokens(g).map((t, i) => ({ ...t, r: real[i]?.el.getBoundingClientRect(), look: real[i] && _dimBarLook(real[i].el) }))
+                .filter(t => t.r && t.r.width);
             document.body.appendChild(g);
             g._from = r;
             return g;
         }
 
-        // The old text fades out, then the new one in, never both at once, while both
-        // travel to the bar's new place.
+        // Fixed copy of one bar piece `el` (already dressed) over rect `r`.
+        function _dimBarPiece(el, r) {
+            const c = el.cloneNode(true);
+            c.removeAttribute('id');
+            c.setAttribute('aria-hidden', 'true');
+            const set = (k, v) => c.style.setProperty(k, v, 'important');
+            set('position', 'fixed'); set('left', `${r.left}px`); set('top', `${r.top}px`);
+            set('margin', '0'); set('right', 'auto'); set('bottom', 'auto'); set('width', 'auto'); set('height', 'auto');
+            set('white-space', 'nowrap'); set('z-index', '42'); set('pointer-events', 'none');
+            set('transform', 'none'); set('transition', 'none');
+            // Not pinned: the glide animates these, and an !important inline value would win.
+            // The piece keeps its own (often faint) opacity as its resting value.
+            const op = parseFloat(c.style.getPropertyValue('opacity'));
+            c._op = Number.isFinite(op) ? op : 1;
+            c.style.removeProperty('translate');
+            c.style.removeProperty('opacity');
+            c.style.opacity = String(c._op);
+            document.body.appendChild(c);
+            return c;
+        }
+
+        // The dim bar travels piece by piece: a piece both bars have glides from its old
+        // place to its new one; only text that changes (an index becoming an axis letter)
+        // swaps over in place, and pieces only one side has fade where they ride along.
+        // The real bar is hidden meanwhile and shown again the frame the pieces land.
         function _dimBarCrossfade(copy, info) {
             if (!copy) return;
-            const to = info.getBoundingClientRect(), from = copy._from;
-            const dx = (to.left + to.width / 2) - (from.left + from.width / 2), dy = (to.top + to.height / 2) - (from.top + from.height / 2);
-            copy.animate([{ translate: '0px 0px' }, { translate: `${dx}px ${dy}px` }], { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE, fill: 'forwards' });
-            const fade = { duration: _ORTHO_GLIDE_MS * 0.4, easing: 'ease-in-out', fill: 'both' };
-            const out = copy.animate([{ opacity: 1 }, { opacity: 0 }], fade);
-            const inn = info.animate([{ opacity: 0 }, { opacity: 1 }], { ...fade, delay: _ORTHO_GLIDE_MS * 0.4 });
-            out.onfinish = out.oncancel = () => copy.remove();
-            inn.onfinish = () => inn.cancel();
+            const olds = copy._tokens || [];
+            const news = _dimBarTokens(info).map(t => ({ ...t, r: t.el.getBoundingClientRect() })).filter(t => t.r.width);
+            copy.remove();
+            if (!olds.length || !news.length) return;
+            const mid = r => [r.left + r.width / 2, r.top + r.height / 2];
+            const delta = (a, b) => { const [ax, ay] = mid(a), [bx, by] = mid(b); return [bx - ax, by - ay]; };
+            const barShift = delta(copy._from, info.getBoundingClientRect());
+            const newBy = new Map(news.map(t => [t.key, t]));
+            const oldBy = new Map(olds.map(t => [t.key, t]));
+            // A piece only one side has moves with the rest of its label.
+            const labelShift = new Map();
+            olds.forEach(o => { const n = newBy.get(o.key); if (n && !labelShift.has(o.key.split(':')[0])) labelShift.set(o.key.split(':')[0], delta(o.r, n.r)); });
+            const shiftOf = key => labelShift.get(key.split(':')[0]) || barShift;
+            const D = _ORTHO_GLIDE_MS, move = { duration: D, easing: _ORTHO_GLIDE_EASE, fill: 'forwards' };
+            // `from`/`to` are fractions of the piece's own opacity.
+            const fade = (el, from, to, a, b) => el.animate([{ opacity: from * el._op }, { opacity: to * el._op }],
+                { duration: D * (b - a), delay: D * a, easing: 'ease-in-out', fill: 'both' });
+            const pieces = [];
+            // Copies sit where the real pieces are, centre on centre (a fixed copy lays out as a block).
+            const place = (el, r) => {
+                const c = el.getBoundingClientRect(), [cx, cy] = mid(c), [rx, ry] = mid(r);
+                el.style.setProperty('left', `${r.left + (rx - cx)}px`, 'important');
+                el.style.setProperty('top', `${r.top + (ry - cy)}px`, 'important');
+            };
+            const live = new Map(news.map(n => {
+                const c = n.el.cloneNode(true);
+                _dressLike(n.el, c, 'important');
+                return [n.key, c];
+            }));
+            const sameLook = new Map(news.map(n => [n.key, oldBy.has(n.key) && _dimBarLook(n.el) === oldBy.get(n.key).look]));
+            info.classList.add('dimbar-morphing');
+            const outs = olds.map(o => { const el = _dimBarPiece(o.el, o.r); pieces.push(el); return [o, el]; });
+            const ins = news.map(n => { const el = _dimBarPiece(live.get(n.key), n.r); pieces.push(el); return [n, el]; });
+            outs.forEach(([o, el]) => place(el, o.r));
+            ins.forEach(([n, el]) => place(el, n.r));
+            let clock = null;
+            outs.forEach(([o, el]) => {
+                const n = newBy.get(o.key);
+                const [dx, dy] = n ? delta(o.r, n.r) : shiftOf(o.key);
+                const a = el.animate([{ translate: '0px 0px' }, { translate: `${dx}px ${dy}px` }], move);
+                clock = clock || a;
+                if (!n) fade(el, 1, 0, 0, 0.5);
+                else if (n.text !== o.text) fade(el, 1, 0, 0, 0.55);
+                else if (!sameLook.get(o.key)) fade(el, 1, 0, 0.6, 1);   // under the new look, until it is opaque
+            });
+            ins.forEach(([n, el]) => {
+                const o = oldBy.get(n.key);
+                if (o && o.text === n.text && sameLook.get(n.key)) { el.remove(); return; }   // the old piece is the same
+                const [dx, dy] = o ? delta(o.r, n.r) : shiftOf(n.key);
+                el.animate([{ translate: `${-dx}px ${-dy}px` }, { translate: '0px 0px' }], move);
+                if (!o || o.text !== n.text) fade(el, 0, 1, 0.45, 1);
+                else fade(el, 0, 1, 0, 0.6);
+            });
+            const done = () => {
+                pieces.forEach(el => el.remove());
+                info.classList.remove('dimbar-morphing');
+            };
+            if (clock) clock.onfinish = clock.oncancel = done;
+            else done();
         }
 
         // Morph `el` from rect `from` into its own place (move + resize, no fade).
@@ -43316,9 +43620,23 @@
             g.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width + 2}px;height:${r.height}px;`
                 + 'right:auto;max-width:none;max-height:none;margin:0;z-index:42;pointer-events:none;transition:none;';
             g.style.fontFamily = getComputedStyle(el).fontFamily;
+            _copyTextLook(el, g);
             document.body.appendChild(g);
             g._from = r;
             return g;
+        }
+
+        // A copy at page level leaves the ancestors part of its look hangs on (a name
+        // on the image is white and outlined only inside its view): carry the look along.
+        const _TEXT_LOOK = ['color', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'word-spacing', 'text-transform',
+            '-webkit-text-stroke-width', '-webkit-text-stroke-color', 'paint-order', 'text-shadow', 'visibility',
+            'display', 'align-items', 'justify-content', 'gap', 'padding', 'white-space'];
+        function _copyTextLook(src, dst) {
+            const to = [dst, ...dst.querySelectorAll('*')];
+            [src, ...src.querySelectorAll('*')].forEach((el, i) => {
+                const cs = getComputedStyle(el);
+                _TEXT_LOOK.forEach(k => to[i]?.style.setProperty(k, cs.getPropertyValue(k)));
+            });
         }
 
         // Slide label ghost `g` onto `toEl` (hidden meanwhile), keeping its size; then drop it.
@@ -43330,6 +43648,7 @@
                 ? [{ transform: 'none' }, { transform: `translate(${to.left - g._from.left}px, ${to.top - g._from.top}px)` }]
                 : [{ opacity: 1 }, { opacity: 0 }]);
             // A kept copy stands in for the real label until it is dropped.
+            if (to && to.width && g._caseOf) _caseNameRide(toEl);
             if (to && to.width) {
                 const h = toEl.animate([{ opacity: 0 }, { opacity: 0 }], { duration: g._kept ? 60000 : _ORTHO_GLIDE_MS });
                 if (g._kept) g._realHold = h;
@@ -43350,11 +43669,24 @@
         const _isCaseName = el => !!el?.matches?.(_CASE_NAME_SEL);
         const _caseNameShown = el => el.isConnected && el.getClientRects().length > 0 && +getComputedStyle(el).opacity > 0.05;
         let _caseVeil = null; // { depth, before: Map<el,{r,copy}>, holds: Map<el,Animation>, timer, raf }
+        // Names a glide carries itself, as a copy travelling from the old one to the new
+        // one (single view <-> ortho): the veil leaves both alone until it lifts.
+        const _caseNameRiders = new Set();
+        function _caseNameRide(el) {
+            if (!el) return;
+            _caseNameRiders.add(el);
+            const v = _caseVeil;
+            if (!v) return;
+            v.before.get(el)?.copy?.remove();
+            v.before.delete(el);
+            v.holds.get(el)?.cancel();
+            v.holds.delete(el);
+        }
         function _caseNamesVeil() {
             if (_caseVeil) { _caseVeil.depth++; return; }
             const v = _caseVeil = { depth: 1, before: new Map(), holds: new Map(), timer: 0, raf: 0 };
             document.querySelectorAll(_CASE_NAME_SEL).forEach(el => {
-                if (!_caseNameShown(el)) return;
+                if (!_caseNameShown(el) || _caseNameRiders.has(el)) return;
                 const copy = _orthoLabelGhost(el, true);
                 if (copy) copy.style.opacity = '0';
                 v.before.set(el, { r: el.getBoundingClientRect(), copy });
@@ -43379,7 +43711,7 @@
                     if (shown && Math.abs(r.left - b.r.left) <= 1 && Math.abs(r.top - b.r.top) <= 1) return;
                     leave(el, b);
                 });
-                document.querySelectorAll(_CASE_NAME_SEL).forEach(el => { if (!v.before.has(el) && _caseNameShown(el)) hide(el); });
+                document.querySelectorAll(_CASE_NAME_SEL).forEach(el => { if (!v.before.has(el) && !_caseNameRiders.has(el) && _caseNameShown(el)) hide(el); });
             };
             // A glide is about to hide `root` under its copies: the names in it fade out now,
             // instead of vanishing with it and their copies showing up once the layout moves.
@@ -43392,6 +43724,7 @@
             const v = _caseVeil;
             if (!v || --v.depth > 0) return;
             _caseVeil = null;
+            _caseNameRiders.clear();
             clearTimeout(v.timer);
             if (v.raf) cancelAnimationFrame(v.raf);
             v.before.forEach(b => b.copy?.remove());
@@ -43431,10 +43764,17 @@
         }
 
         // Name-label copies and the overlay list's place, taken before the switch.
-        function _orthoLabelGhosts(names) {
+        // `caseNames`: a case name gets a copy too, which then travels (_caseNameRide)
+        // instead of fading out here and in at its new place.
+        function _orthoLabelGhosts(names, caseNames = false) {
             const pal = document.getElementById('overlay-palette');
             return {
-                names: names.map(el => _orthoLabelGhost(el)),
+                names: names.map(el => {
+                    const g = _orthoLabelGhost(el, caseNames);
+                    // The copy too: cloned from an ortho pane's name it still looks like one to the veil.
+                    if (g && _isCaseName(el)) { g._caseOf = el; _caseNameRide(el); _caseNameRiders.add(g); }
+                    return g;
+                }),
                 palette: pal?.classList.contains('visible') ? pal.getBoundingClientRect() : null,
             };
         }
@@ -43464,11 +43804,12 @@
             if (!ghost) { crossfade(() => enterMultiView(dims, { leadWithSingleView: true })); return; }
             const info = document.getElementById('info');
             const cbFrom = _slimCb()?.getBoundingClientRect(), infoFrom = info?.getBoundingClientRect();
-            const labels = _orthoLabelGhosts([document.getElementById('case-title')]);
+            const labels = _orthoLabelGhosts([document.getElementById('case-title')], true);
             const infoCopy = _dimBarCopy(info);
+            const [eggs, eggsFrom] = _eggsBar();
             _glideBegin();
             _killImmersiveTweens();
-            _holdTransitions([info]);
+            _holdTransitions([info, eggs]);
             enterMultiView(dims, { leadWithSingleView: true });
             _reconcileCaseTitle();
             if (!multiViewActive || _orthoSingleViewPane() < 0) {
@@ -43484,6 +43825,10 @@
             // Immersive takes the colorbar out of the page flow, which re-centres the panes:
             // do it now, or the glide aims at a spot they then leave.
             if (_fullscreenActive) { _positionFullscreenChrome(); mvScaleAllCanvases(); }
+            // The mode pills take their new place now, before the pane morph moves the
+            // image they anchor to; until the glide lands nothing re-measures them.
+            positionEggs();
+            _eggsGlideHold = true;
             // Measured before the pane morph below starts.
             _keepLabelOn(ghost, labels.names[0]);
             _orthoLabelGlide(labels.names[0], big.nameEl);
@@ -43491,7 +43836,7 @@
             const target = big.canvas.getBoundingClientRect();   // before anything below moves it
             // The image stays hidden until the ghost lands on it, so the slice is never on
             // screen twice; the pane's box (wider than the image) grows out of the old image.
-            big.canvas.animate([{ opacity: 0 }, { opacity: 0 }], { duration: _ORTHO_GLIDE_MS });
+            const bigHold = _glideHold(big.canvas);
             _morphFrom(big.pane, ghost._from);
             const others = mvViews.filter(v => v !== big);
             const shift = _orthoPaneShifts(others.map(v => v.pane.getBoundingClientRect()), target.left);
@@ -43499,13 +43844,19 @@
                 [{ transform: `translateX(${shift(v.pane.getBoundingClientRect())}px)` }, { transform: 'none' }],
                 { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE }));
             _holdTransitions([_mvCb(), _cbBar(_mvCb())]);
-            _liftBars([_mvCb(), info]);
+            _liftBars([_mvCb(), info, eggs]);
             drawMvColorbar();   // full height from the first frame
             _glideFrom(_mvCb(), cbFrom);
             _dimBarCrossfade(infoCopy, info);
             _glideFrom(info, infoFrom);
+            _glideFrom(eggs, eggsFrom);
             const glide = _orthoGlideTo(ghost, target);
-            glide.onfinish = glide.oncancel = () => _orthoGhostRelease(ghost, () => !!big.lastImageData);
+            glide.onfinish = glide.oncancel = () => {
+                bigHold?.cancel();
+                _eggsGlideHold = false;
+                positionEggs();
+                _orthoGhostRelease(ghost, () => !!big.lastImageData);
+            };
             _syncSinkFocus();
         }
 
@@ -43519,10 +43870,11 @@
             const sides = mvViews.filter(v => v !== big).map(v => _orthoGhost(v.canvas, v.pane)).filter(Boolean);
             const shift = _orthoPaneShifts(sides.map(g => g._from), big.pane.getBoundingClientRect().left);
             const infoCopy = _dimBarCopy(document.getElementById('info'));
-            const labels = _orthoLabelGhosts([big.nameEl]);
+            const labels = _orthoLabelGhosts([big.nameEl], true);
             const info = document.getElementById('info');
             const cbFrom = _mvCb()?.getBoundingClientRect(), infoFrom = info?.getBoundingClientRect();
-            _holdTransitions([info, _slimCb(), _cbBar(_slimCb())]);
+            const [eggs, eggsFrom] = _eggsBar();
+            _holdTransitions([info, eggs, _slimCb(), _cbBar(_slimCb())]);
             // The big pane's box, without its image, shrinks back with the image.
             const pr = big.pane.getBoundingClientRect(), box = document.createElement('div');
             box.setAttribute('aria-hidden', 'true');
@@ -43533,8 +43885,9 @@
             _overlayPaletteGlideHold = !!labels.palette;   // stays put until the glide places it
             exitMultiView();
             const main = document.getElementById('viewer');
-            // The image's rounded outline sits on its viewport; hide both until the ghost lands.
-            document.getElementById('canvas-viewport')?.animate([{ opacity: 0 }, { opacity: 0 }], { duration: _ORTHO_GLIDE_MS });
+            // The image's rounded outline sits on its viewport; hide both until the ghost lands
+            // (not for a fixed time: the glide starts only once the layout has settled).
+            const vpHold = _glideHold(document.getElementById('canvas-viewport'));
             const seq0 = _frameDisplaySeq;
             // The single view's size settles a frame after exit; until then the
             // bars stay where they were. Immersive places the dim bar by hand: do it now, or
@@ -43542,6 +43895,7 @@
             _positionFullscreenChrome();
             _pinAt(_slimCb(), cbFrom);
             _pinAt(info, infoFrom);
+            _pinAt(eggs, eggsFrom);
             const infoHold = _glideHold(info);   // the copy shows the old text until the glide starts
             // How long that takes depends on the window: wait until it is still.
             const startGlide = () => {
@@ -43550,9 +43904,11 @@
                         { duration: _ORTHO_GLIDE_MS, easing: _ORTHO_GLIDE_EASE, fill: 'forwards' });
                     out.onfinish = out.oncancel = () => g.remove();
                 });
-                [_slimCb(), info].forEach(el => el?.style.removeProperty('translate'));
-                _liftBars([_slimCb(), info]);
+                [_slimCb(), info, eggs].forEach(el => el?.style.removeProperty('translate'));
+                positionEggs();
+                _liftBars([_slimCb(), info, eggs]);
                 _glideFrom(_slimCb(), cbFrom);
+                _glideFrom(eggs, eggsFrom);
                 infoHold.cancel();
                 _dimBarCrossfade(infoCopy, info);
                 _glideFrom(info, infoFrom);
@@ -43563,7 +43919,7 @@
                 const boxGlide = _orthoGlideTo(box, to);
                 boxGlide.onfinish = boxGlide.oncancel = () => box.remove();
                 const glide = _orthoGlideTo(ghost, to);
-                glide.onfinish = glide.oncancel = () => _orthoGhostRelease(ghost, () => _frameDisplaySeq !== seq0);
+                glide.onfinish = glide.oncancel = () => { vpHold?.cancel(); _orthoGhostRelease(ghost, () => _frameDisplaySeq !== seq0); };
             };
             let lastTop = null, lastW = null, still = 0, waited = 0;
             const settle = () => {
@@ -43571,10 +43927,12 @@
                 still = r.width && r.top === lastTop && r.width === lastW ? still + 1 : 0;
                 lastTop = r.top; lastW = r.width;
                 // Re-pin: the bars' target moves with it.
-                [_slimCb(), info].forEach(el => el?.style.removeProperty('translate'));
+                [_slimCb(), info, eggs].forEach(el => el?.style.removeProperty('translate'));
                 _positionFullscreenChrome();
+                positionEggs();
                 _pinAt(_slimCb(), cbFrom);
                 _pinAt(info, infoFrom);
+                _pinAt(eggs, eggsFrom);
                 // It takes its final place with its first slice, so that has to be back too.
                 if ((still >= 2 && _frameDisplaySeq !== seq0) || ++waited >= 40) startGlide();
                 else requestAnimationFrame(settle);
@@ -43736,6 +44094,7 @@
             _killImmersiveTweens();
             const sides = fromOrtho ? mvViews.slice(1).map(v => _orthoGhost(v.canvas, v.pane)).filter(Boolean) : [];
             sides.forEach((g, i) => _splitDressGhost(g, mvViews[i + 1].pane));
+            const box = fromOrtho ? _paneBoxGhost(big.pane) : null;   // its bars close in on the picture
             const nameEl = fromOrtho ? big.nameEl : document.getElementById('case-title');
             const labels = _orthoLabelGhosts([nameEl]);
             const hold = [{ opacity: 0 }, { opacity: 0 }];
@@ -43756,6 +44115,7 @@
                 // Did not switch: drop the copies over the unchanged view.
                 bHold.cancel(); aHold.cancel(); nameHold?.cancel(); freeBars(); showBTitle();
                 sides.forEach(g => g.remove());
+                box?.remove();
                 labels.names.forEach(g => g?.remove());
                 _overlayPaletteGlideHold = false;
                 _orthoGhostRelease(ghost, () => true);
@@ -43798,8 +44158,10 @@
                     pal?.style.removeProperty('z-index');
                     freeBars();
                 },
-                { ready: () => !!_splitPanes()[0]?.clip || entered === false, onStart: fadeInB });
-            clock.onfinish = clock.oncancel = () => _orthoGhostRelease(ghost, splitDrawn);
+                { ready: () => !!_splitPanes()[0]?.clip || entered === false, onStart: fadeInB,
+                  riders: box ? [{ g: box, target: () => _splitPanes()[0]?.canvas?.getBoundingClientRect(),
+                      radii: () => { const c = _splitPanes()[0]?.clip; return c ? _cornerRadii(c) : null; } }] : [] });
+            clock.onfinish = clock.oncancel = () => { _paneBoxDrop(box); _orthoGhostRelease(ghost, splitDrawn); };
             _syncSinkFocus();
         }
 
@@ -43955,6 +44317,37 @@
             _splitDressGhost(g, frame);
             return g;
         }
+
+        // Empty copy of pane box `frame` (its black surround, outline and corners), no picture:
+        // goes under a picture-only copy so the surround fades out rather than vanishing.
+        function _surroundGhost(frame) {
+            const r = frame?.getClientRects().length ? frame.getBoundingClientRect() : null;
+            if (!r || !r.width || !r.height) return null;
+            const cs = getComputedStyle(frame);
+            const g = document.createElement('div');
+            g.setAttribute('aria-hidden', 'true');
+            g.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;`
+                + `z-index:40;pointer-events:none;background:${cs.backgroundColor};outline:${cs.outline};box-shadow:${cs.boxShadow};`
+                + `border-radius:${cs.borderRadius};`;
+            document.body.appendChild(g);
+            return g;
+        }
+
+        // The box that squares an ortho pane (its fill bars), as a copy that rides
+        // under the pane's picture copy in _splitGlideLive: the bars travel and reshape
+        // with the picture instead of vanishing or fading out on a clock of their own.
+        // Null for any other pane (its box shows nothing of its own).
+        function _paneBoxGhost(pane) {
+            if (!pane?.classList?.contains('mv-pane')) return null;
+            const g = _surroundGhost(pane);
+            if (g) { g._from = pane.getBoundingClientRect(); g._radii = _cornerRadii(pane); }
+            return g;
+        }
+        const _paneBoxDrop = (g) => {
+            if (!g) return;
+            const a = g.animate([{ opacity: 1 }, { opacity: 0 }], { duration: _GLIDE_GHOST_FADE_MS, easing: 'ease-out', fill: 'forwards' });
+            a.onfinish = a.oncancel = () => g.remove();
+        };
 
         // Copy of `src` that sits on `ghost` and fades in over it as it glides: the
         // slice takes on the new view's colours on the way. Runs from `onFrame`.
@@ -44441,11 +44834,13 @@
          *  arriving together; names and bars fade out and come back with the panes.
          *  `items` are {pane, canvas, clip}. False, having changed nothing, when an image
          *  is zoomed past its pane or another glide is running. */
-        function _paneLayoutGlide(items, labels, titles, commit) {
+        function _paneLayoutGlide(items, labels, titles, commit, rideName = null) {
             items = items.filter(o => o.canvas && o.clip);
             if (!_orthoGlideAllowed() || !items.length || !items.every(o => _splitWholeIn(o.canvas, o.clip))) return false;
             const ghosts = items.map(o => _glideGhost(o.canvas, o.clip));
             if (ghosts.some(g => !g)) { ghosts.forEach(g => g?.remove()); return false; }
+            // A --match case name on the first pane travels with it as a copy.
+            const nameRide = rideName?.classList.contains('visible') ? _orthoLabelGhosts([rideName], true).names[0] : null;
             _glideBegin();
             _killImmersiveTweens();
             _glideFadeOutCopies(labels);
@@ -44454,28 +44849,40 @@
                 document.getElementById('compare-center-island')].filter(el => el?.getClientRects().length);
             const bars = barEls.map(el => [el, el.getBoundingClientRect()]);
             const freeBars = _holdTransitions(barEls.concat(barEls.map(_cbBar)), null);
+            // An ortho pane's bars travel with its picture to its new box.
+            const boxes = items.map(o => _paneBoxGhost(o.pane));
             commit();
+            if (nameRide) { _keepLabelOn(ghosts[0], nameRide); _orthoLabelGlide(nameRide, rideName); }
             const canvasHolds = items.map(o => _glideHold(o.canvas));
             const showTitles = _holdLabels(titles());
             const paneHolds = items.map(o => _glideHold(o.pane));
-            const riders = items.slice(1).map((o, i) => ({
-                g: ghosts[i + 1], target: () => o.canvas.getBoundingClientRect(), radii: () => _cornerRadii(o.clip),
-            }));
+            const riders = [
+                ...items.map((o, i) => boxes[i] && { g: boxes[i], target: () => o.pane.getBoundingClientRect(), radii: () => _cornerRadii(o.pane) }).filter(Boolean),
+                ...items.slice(1).map((o, i) => ({
+                    g: ghosts[i + 1], target: () => o.canvas.getBoundingClientRect(), radii: () => _cornerRadii(o.clip),
+                })),
+            ];
             const clock = _splitGlideLive(ghosts[0], () => items[0].canvas.getBoundingClientRect(), () => _cornerRadii(items[0].clip), bars,
                 (p, rect, done) => {
                     if (!done) return;
                     canvasHolds.forEach(h => h.cancel());
+                    // A pane whose box rode along shows under it as it lands.
+                    paneHolds.forEach((h, i) => { if (boxes[i]) h.cancel(); });
                     showTitles();
                     freeBars();
                 },
                 {
                     onStart: () => {
-                        paneHolds.forEach(h => h.cancel());
-                        items.forEach(o => _glideFadeInLate(o.pane));
+                        paneHolds.forEach((h, i) => { if (boxes[i]) return; h.cancel(); _glideFadeInLate(items[i].pane); });
                     },
                     riders,
                 });
             clock.onfinish = clock.oncancel = () => {
+                // The real panes are already showing the same black surround under the
+                // copies: drop the surround copies at once. Fading them out together with
+                // the picture copies stacks two half-transparent layers and dims the
+                // pictures for a few frames.
+                boxes.forEach(g => g?.remove());
                 _orthoGhostRelease(ghosts[0], () => true);
                 ghosts.slice(1).forEach(g => {
                     const out = g.animate([{ opacity: 1 }, { opacity: 0 }], { duration: _GLIDE_GHOST_FADE_MS, easing: 'ease-out', fill: 'forwards' });
@@ -44693,12 +45100,41 @@
             if (!compareMvActive && !compareQmriActive && !compareActive) {
                 const ids = ['case-title', 'slim-cb', 'slim-cb-vmin', 'slim-cb-vmax', 'mv-cb', 'mv-cb-vmin', 'mv-cb-vmax', 'case-name-out'];
                 return [...ids.map(id => document.getElementById(id)),
-                    ...document.querySelectorAll('#qmri-view-wrap .qv-label, #qmri-view-wrap .cq-row-label, #qmri-view-wrap .qmri-mv-cb canvas, .mv-pane-name')];
+                    ...document.querySelectorAll('#qmri-view-wrap .qv-label, #qmri-view-wrap .cq-row-label, #qmri-view-wrap .qmri-mv-cb canvas, #qmri-view-wrap .slim-cb-val, .mv-pane-name'),
+                    ...qmriViews.flatMap(v => [v._colorBar?.canvas, v.cbVmin, v.cbVmax])];
             }
             if (_comparePanesShown()) return [...compareTitles, ...comparePaneCbs, ...['slim-cb', 'slim-cb-vmin', 'slim-cb-vmax'].map(id => document.getElementById(id))];
             const bars = compareQmriViews.flatMap(v => [v._colorBar?.canvas, v.cbVmin, v.cbVmax]);
             return [...document.querySelectorAll(_ROW_NAMES), ...bars, ...['mv-cb', 'mv-cb-vmin', 'mv-cb-vmax'].map(id => document.getElementById(id))];
         }
+
+        // A pane's array name: in its own corner, or in the corner of its row's first image.
+        const _PANE_NAME = '.compare-title, .cq-row-name';
+        const _paneNameEl = (pane) => pane?.querySelector?.(_PANE_NAME) || pane?.closest?.('.cq-row')?.querySelector('.cq-row-name') || null;
+        // What a name reads as, without the [ ] key hints a side-by-side name carries.
+        const _paneNameText = (el) => {
+            const c = el.cloneNode(true);
+            c.querySelectorAll('.hint-bracket').forEach(b => b.remove());
+            return c.textContent.replace(/\s+/g, ' ').trim();
+        };
+        // Copies of the names on panes `from`, one per name, listed per pane (see _rowsGlideLand).
+        function _paneNameCopies(from) {
+            const made = new Map();
+            return from.map(p => {
+                const el = _paneNameEl(p.pane);
+                if (!el || +getComputedStyle(el).opacity < 0.5) return null;
+                if (!made.has(el)) {
+                    const c = _orthoLabelGhost(el);
+                    if (c) { c._text = _paneNameText(el); c._of = el; }
+                    made.set(el, c);
+                }
+                return made.get(el);
+            });
+        }
+        const _nameCopyFadeOut = (c) => {
+            const a = c.animate([{ opacity: 1 }, { opacity: 0 }], { duration: _ORTHO_GLIDE_MS * 0.5, easing: 'ease-out', fill: 'forwards' });
+            a.onfinish = a.oncancel = () => c.remove();
+        };
 
         // `from`: panes on screen now, for each a copy is made. `commit` switches the view
         // (the copies hold the old view up meanwhile if it returns a promise).
@@ -44720,13 +45156,20 @@
             }
             _glideBegin();
             _killImmersiveTweens();
+            // Ortho bars ride with their pictures (see _rowsGlideLand); any other box
+            // fades out under the copies.
+            const boxes = from.map(p => whole ? _paneBoxGhost(p.clip) : null);
+            if (whole) from.forEach((p, i) => { if (!boxes[i]) _glideFadeOut(_surroundGhost(p.clip)); });
+            ghosts.boxes = boxes;
             const onScreen = el => {
                 const r = el?.getClientRects().length ? el.getBoundingClientRect() : null;
                 return r && r.width && r.top >= 0 && r.bottom <= window.innerHeight && +getComputedStyle(el).opacity > 0.5;
             };
             const fadeIn = slide.filter(el => el && !onScreen(el));
             slide = slide.filter(onScreen);
-            _glideFadeOutCopies(_rowsChromeCopies().filter(el => !slide.some(b => b.contains(el))));
+            // A pane's name rides along with its copy when the pane it lands in has the same name.
+            const names = _paneNameCopies(from), named = new Set(names.filter(Boolean).map(c => c._of));
+            _glideFadeOutCopies(_rowsChromeCopies().filter(el => !slide.some(b => b.contains(el)) && !named.has(el)));
             const info = document.getElementById('info'), infoFrom = info?.getBoundingClientRect();
             const freeBars = _holdTransitions([info], null);
             const eggsBar = _eggsBar();
@@ -44736,12 +45179,13 @@
             const bar = paneLate ? { copy: _dimBarCopy(info), text: info?.textContent } : null;
             if (bar?.copy) bar.hold = _glideHold(info);
             const done = commit();
-            if (done?.then) done.catch(e => console.error(e)).then(() => _rowsGlideLand(ghosts, whole, resolve, info, infoFrom, freeBars, eggsBar, slid, paneLate, bar));
-            else _rowsGlideLand(ghosts, whole, resolve, info, infoFrom, freeBars, eggsBar, slid, paneLate, bar);
+            if (done?.then) done.catch(e => console.error(e)).then(() => _rowsGlideLand(ghosts, whole, resolve, info, infoFrom, freeBars, eggsBar, slid, paneLate, bar, names));
+            else _rowsGlideLand(ghosts, whole, resolve, info, infoFrom, freeBars, eggsBar, slid, paneLate, bar, names);
         }
 
-        function _rowsGlideLand(ghosts, whole, resolve, info, infoFrom, freeBars, eggsBar, slid = [], paneLate = false, bar = null) {
+        function _rowsGlideLand(ghosts, whole, resolve, info, infoFrom, freeBars, eggsBar, slid = [], paneLate = false, bar = null, names = []) {
             const to = resolve();
+            const nameCopies = [...new Set(names.filter(Boolean))];
             // The dim bar's old text fades out and its new text in as the glide starts;
             // unchanged text (or no glide) just shows the bar again.
             const barDone = (cross) => {
@@ -44763,21 +45207,39 @@
                 });
                 _orthoGhostRelease(last, () => true);
             };
+            const boxes = ghosts.boxes || [];
             if (!to) {
                 barDone(false);
                 freeBars();
+                boxes.forEach(_paneBoxDrop);
                 handOver(ghosts);
+                nameCopies.forEach(_nameCopyFadeOut);
                 return;
             }
-            const pairs = whole ? ghosts.map((g, i) => ({ g, part: to.pair(i) })).filter(p => p.part) : [];
+            const pairs = whole ? ghosts.map((g, i) => ({ g, i, part: to.pair(i) })).filter(p => p.part) : [];
+            // A name the landing pane shows too rides there with its copy and hands over
+            // to the real one; any other name fades out where it was.
+            const rides = [];
+            pairs.forEach(o => {
+                const c = names[o.i], toEl = _paneNameEl(o.part.pane);
+                if (!c || c._ride || !toEl || _isCaseName(toEl) || _paneNameText(toEl) !== c._text) return;
+                c._ride = true;
+                rides.push({ c, toEl, hold: _glideHold(toEl) });
+            });
+            nameCopies.filter(c => !c._ride).forEach(_nameCopyFadeOut);
+            const riding = new Set(rides.map(r => r.toEl));
+            const rideStep = (p) => rides.forEach(({ c, toEl }) => {
+                const t = toEl.getBoundingClientRect();
+                if (t.width) c.style.transform = `translate(${(t.left - c._from.left) * p}px, ${(t.top - c._from.top) * p}px)`;
+            });
             // Pane names wait until every pane has landed, then fade in together.
             const showNames = paneLate
-                ? _holdLabels(to.panes.map(p => p.pane?.querySelector?.('.compare-title, .cq-row-name')).filter(Boolean))
+                ? _holdLabels(to.panes.map(p => p.pane?.querySelector?.(_PANE_NAME)).filter(el => el && !riding.has(el)))
                 : () => {};
             const paired = new Set(pairs.map(p => p.part.pane));
             pairs.forEach(p => { p.hold = _glideHold(paneLate ? p.part.pane : p.part.canvas); });
             const holds = to.panes.filter(p => !paired.has(p.pane)).map(p => [p.pane, _glideHold(p.pane)]);
-            const showChrome = _holdLabels([...to.chrome, ...(slid.fadeIn || [])].filter(Boolean));
+            const showChrome = _holdLabels([...to.chrome, ...(slid.fadeIn || [])].filter(el => el && !riding.has(el)));
             // A shared range may ask again, so "drawn" has to hold for a moment.
             const t0 = performance.now();
             let settled = false, stable = 0;
@@ -44799,12 +45261,20 @@
             watch();
             if (!pairs.length) {
                 // Nothing to land in: the old view waits, then dissolves into the new one.
-                whenSettled(() => { barDone(true); freeBars(); handOver(ghosts); showNames(); });
+                whenSettled(() => { barDone(true); freeBars(); boxes.forEach(_paneBoxDrop); handOver(ghosts); showNames(); });
                 _syncSinkFocus();
                 return;
             }
             const leaving = new Set(pairs.map(p => p.g));
             ghosts.filter(g => !leaving.has(g)).forEach(_glideFadeOut);
+            const pairedIdx = new Set(pairs.map(p => p.i));
+            boxes.forEach((b, i) => { if (b && !pairedIdx.has(i)) _glideFadeOut(b); });
+            // A box landing in an ortho pane keeps its bars there; anywhere else it
+            // closes in on the picture.
+            const boxRiders = pairs.filter(o => boxes[o.i]).map(o => {
+                const keep = o.part.clip?.classList?.contains('mv-pane');
+                return { g: boxes[o.i], target: () => (keep ? o.part.clip : o.part.canvas).getBoundingClientRect(), radii: () => _cornerRadii(o.part.clip) };
+            });
             const lead = pairs[0];
             const tintStep = (p) => {
                 pairs.forEach(o => {
@@ -44816,6 +45286,7 @@
             const clock = _splitGlideLive(lead.g, () => lead.part.canvas.getBoundingClientRect(), () => _cornerRadii(lead.part.clip),
                 [[info, infoFrom], eggsBar, ...slid],
                 (p, rect, done) => {
+                    rideStep(p);
                     if (!done) tintStep(p);
                     else freeBars();
                 },
@@ -44828,11 +45299,22 @@
                         if (lateNew) holds.forEach(([el, h]) => { h.cancel(); _glideFadeInLate(el); });
                         barDone(true);
                     },
-                    riders: pairs.slice(1).map(o => ({ g: o.g, target: () => o.part.canvas.getBoundingClientRect(), radii: () => _cornerRadii(o.part.clip) })),
+                    riders: [...boxRiders, ...pairs.slice(1).map(o => ({ g: o.g, target: () => o.part.canvas.getBoundingClientRect(), radii: () => _cornerRadii(o.part.clip) }))],
                 });
             clock.onfinish = clock.oncancel = () => whenSettled(() => {
-                pairs.forEach(o => o.hold?.cancel());
+                boxRiders.forEach(r => _paneBoxDrop(r.g));
+                pairs.forEach(o => {
+                    o.hold?.cancel();
+                    // A pane that waited under its copy shows its colour bars with the copy's fade-out.
+                    if (paneLate) o.part.pane?.querySelectorAll?.('.cb-island').forEach(el =>
+                        el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: _GLIDE_GHOST_FADE_MS, easing: 'ease-out' }));
+                });
                 showNames();
+                // The real name is under the picture copy until that has faded out.
+                rides.forEach(({ c, hold }) => {
+                    const a = c.animate([{ opacity: 1 }, { opacity: 1 }], { duration: _GLIDE_GHOST_FADE_MS });
+                    a.onfinish = a.oncancel = () => { hold.cancel(); c.remove(); };
+                });
                 handOver(pairs.map(o => {
                     if (!o.tint) return o.g;
                     o.g.remove();
@@ -46728,6 +47210,11 @@
                 el.style.removeProperty('padding-bottom');
                 el.style.removeProperty('overflow');
             });
+            const eggsEl = document.getElementById('mode-eggs');
+            if (eggsEl) {
+                eggsEl.style.removeProperty('opacity');
+                eggsEl.style.removeProperty('transition');
+            }
             _clearScrubChromeStyles();
             const viewerRow = document.getElementById('viewer-row');
             if (viewerRow) {
@@ -46827,6 +47314,12 @@
             if (cbWrap) {
                 tl.fromTo(cbWrap, { opacity: 1 }, { opacity: 0, duration: 1, immediateRender: false }, 0);
             }
+            // Mode badges (LOG/FFT/...) fade with the bars: their spot differs in immersive.
+            const eggsEl = document.getElementById('mode-eggs');
+            if (eggsEl) {
+                eggsEl.style.transition = 'none'; // CSS opacity transition would trail the scrub
+                tl.fromTo(eggsEl, { opacity: 1 }, { opacity: 0, duration: 1, immediateRender: false }, 0);
+            }
             // Compare / multiview / qMRI per-pane chrome.
             if (document.querySelector('.compare-title')) {
                 tl.fromTo('.compare-title', { opacity: 1 }, { opacity: 0, duration: 1, immediateRender: false }, 0);
@@ -46888,6 +47381,7 @@
             ].filter(Boolean);
             // The scrub's own opacity tweens stay: they fade these back on the way out.
             if (_immersiveFadeIn) { _immersiveFadeIn.kill(); _immersiveFadeIn = null; }
+            const infoFrom = infoEl?.getClientRects().length ? infoEl.getBoundingClientRect() : null;
             if (cbWrap) cbWrap.style.removeProperty('z-index');
             _setImmersiveOverlayHold(overlayEls, true);
             _clearScrubChromeStyles();
@@ -46902,14 +47396,28 @@
                     if (!_fullscreenActive) return;
                     _setImmersiveOverlayHold(overlayEls, false);
                     try { _positionFullscreenChrome(); } catch (_) {}
+                    // The dimbar slides from where it faded out to where it floats now.
+                    const infoTo = infoFrom && infoEl?.getBoundingClientRect();
+                    if (infoTo?.width && typeof infoEl.animate === 'function') {
+                        const dx = infoFrom.left + infoFrom.width / 2 - (infoTo.left + infoTo.width / 2);
+                        const dy = infoFrom.top + infoFrom.height / 2 - (infoTo.top + infoTo.height / 2);
+                        if (Math.hypot(dx, dy) > 1) infoEl.animate([{ translate: `${dx}px ${dy}px` }, { translate: '0px 0px' }], { duration: 150, easing: 'ease-out' });
+                    }
                     // Crosshair overlays are drawn at pane size: redraw at the new one.
                     if (multiViewActive) mvViews.forEach(v => mvDrawFrame(v));
                     try { _reconcileCbVisibility({ animPhase: 'enter-2' }); } catch (_) {}
                     try { _reconcileCompareCenterPicker(); } catch (_) {}
-                    if (typeof gsap !== 'undefined' && overlayEls.length) {
-                        _immersiveFadeIn = gsap.to(overlayEls, { opacity: 1, duration: 0.15, ease: 'power1.out' });
+                    // Badges sit above the colour bar now: place them before they fade in.
+                    const eggsEl = document.getElementById('mode-eggs');
+                    try { positionEggs(); } catch (_) {}
+                    const fadeEls = eggsEl ? [...overlayEls, eggsEl] : overlayEls;
+                    if (typeof gsap !== 'undefined' && fadeEls.length) {
+                        _immersiveFadeIn = gsap.to(fadeEls, {
+                            opacity: 1, duration: 0.15, ease: 'power1.out',
+                            onComplete: () => { if (eggsEl) eggsEl.style.removeProperty('transition'); },
+                        });
                     } else {
-                        overlayEls.forEach(el => {
+                        fadeEls.forEach(el => {
                             el.style.opacity = '1';
                             el.style.visibility = 'visible';
                         });
@@ -46918,12 +47426,29 @@
             });
         }
 
+        // The overlay bars fade out where they float, as copies, while the real ones
+        // fade back in at their places in the page.
+        function _immersiveBarsFadeOut() {
+            // Only when the way out is played back: a snap shows the real bars at once.
+            if (typeof document.body.animate !== 'function' || !(immersiveTl?.progress() > 0.0001)) return;
+            const shown = el => el?.getClientRects().length && +getComputedStyle(el).opacity > 0.5;
+            const info = document.getElementById('info');
+            const bar = shown(info) ? _dimBarCopy(info) : null;
+            if (bar) {
+                const a = bar.animate([{ opacity: 1 }, { opacity: 0 }], { duration: _ORTHO_GLIDE_MS * 0.5, easing: 'ease-out', fill: 'forwards' });
+                a.onfinish = a.oncancel = () => bar.remove();
+            }
+            _glideFadeOutCopies(['slim-cb', 'slim-cb-vmin', 'slim-cb-vmax', 'mv-cb', 'mv-cb-vmin', 'mv-cb-vmax']
+                .map(id => document.getElementById(id)).filter(shown));
+        }
+
         function _exitImmersive() {
             // Called when reverse transition begins (pinch out from fully settled immersive,
             // or key press exit). Removes fullscreen-mode and resets overlay positions so
             // the timeline can scrub chrome back to normal-flow opacity.
             // Chrome is near-opacity-0 at this point so the layout snap is invisible.
             if (!_fullscreenActive) return;
+            _immersiveBarsFadeOut();
             // Kill any in-flight overlay fade-in (from _settleImmersive) so the
             // reverse scrub has uncontested opacity ownership on these elements.
             // Only that one: the scrub's own opacity tweens are what fade them back.
@@ -46935,6 +47460,11 @@
                     .filter(Boolean).forEach(el => {
                         gsap.set(el, { opacity: 0 });
                     });
+                const eggsEl = document.getElementById('mode-eggs');
+                if (eggsEl) {
+                    eggsEl.style.transition = 'none';
+                    gsap.set(eggsEl, { opacity: 0 });
+                }
             }
             _fullscreenActive = false;
             document.body.classList.remove('fullscreen-mode');
@@ -48093,13 +48623,13 @@
             document.body.classList.toggle('qmri-gapless', qmriGapless);
             _reconcileCompareTitlesInset();
 
-            // 7. qMRI options hint — lives with the bottom-right help/tool hints
+            // 7. qMRI options: hold q (no on-screen button; the hidden
+            // #qmri-hint only anchors the picker).
             const qmriHint = document.getElementById('qmri-hint');
             if (qmriHint) {
-                const qmriHintActive = qmriActive || compareQmriActive;
-                if (!qmriHint.innerHTML) qmriHint.innerHTML = QMRI_SETTINGS_ICON;
-                qmriHint.classList.toggle('visible', qmriHintActive);
-                qmriHint.setAttribute('aria-hidden', qmriHintActive ? 'false' : 'true');
+                const qmriHintActive = qmriActive || compareQmriActive || _qmriHintHold;
+                qmriHint.classList.remove('visible');
+                qmriHint.setAttribute('aria-hidden', 'true');
                 if (!qmriHintActive) _qmriOptionsPinned = false;
                 _reconcileQmriAltOptions();
             }
@@ -49313,7 +49843,7 @@
                     // The --match name (in the big pane or outside the panes) fades
                     // out with the plane labels and back in once the panes land.
                     const names = () => [...document.querySelectorAll('.mv-label, .mv-pane-name.visible, #case-name-out.visible')];
-                    if (!_paneLayoutGlide(items, names(), () => [...new Set([...names(), ...document.querySelectorAll('.mv-pane-name, #case-name-out')])], apply)) crossfade(apply);
+                    if (!_paneLayoutGlide(items, names(), () => [...new Set([...names(), ...document.querySelectorAll('.mv-pane-name, #case-name-out')])], apply, mvViews[0]?.nameEl)) crossfade(apply);
                 },
                 chromeToFade: () => {
                     const sel = ['#mv-cb-wrap', '#array-name', '#mv-orientation',
