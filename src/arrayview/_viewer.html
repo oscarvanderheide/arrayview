@@ -9547,7 +9547,8 @@
          *  together instead of jumping one by one. Runs `change` straight
          *  away under reduced motion; a repeat during a fade shares it. */
         let _viewCrossfadeGhost = null;
-        function _crossfadeViewAround(change) {
+        // morphBar: the dim bar morphs piece by piece (as in a turn) instead of fading with the view.
+        function _crossfadeViewAround(change, morphBar = false) {
             const w = document.getElementById('wrapper');
             if (!w || typeof w.animate !== 'function' || _viewCrossfadeGhost || cutawayActive
                 || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { change(); return; }
@@ -9566,6 +9567,12 @@
             ghost.appendChild(copy);
             const ul = document.getElementById('dim-active-underline');
             if (ul) ghost.appendChild(ul.cloneNode(true));
+            const info = document.getElementById('info');
+            const bar = morphBar && info ? { copy: _dimBarCopy(info), text: info.textContent } : null;
+            if (bar?.copy) {
+                ghost.querySelectorAll('#info').forEach(el => { el.style.visibility = 'hidden'; });
+                bar.hold = info.animate([{ opacity: 0 }, { opacity: 0 }], { duration: 60000 });
+            }
             // Appended last so getElementById keeps finding the live elements.
             document.body.appendChild(ghost);
             _viewCrossfadeGhost = ghost;
@@ -9580,6 +9587,11 @@
                 quiet = (seq !== seq0 && seq === lastSeq) ? quiet + 1 : 0;
                 lastSeq = seq;
                 if (quiet < 2 && performance.now() - t0 < 400) { requestAnimationFrame(wait); return; }
+                if (bar?.copy) {
+                    bar.hold.cancel();
+                    if (info.textContent !== bar.text) _dimBarCrossfade(bar.copy, info); else bar.copy.remove();
+                    bar.copy = null;
+                }
                 const fade = ghost.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, easing: 'ease-out', fill: 'forwards' });
                 const done = () => { ghost.remove(); if (_viewCrossfadeGhost === ghost) { _viewCrossfadeGhost = null; _caseNamesUnveil(); } };
                 fade.onfinish = done;
@@ -9692,7 +9704,7 @@
             const mosaic = dim_z >= 0 || qmriMosaicActive;
             const tiles = _isMosaicDim(activeDim) || (qmriMosaicActive && _qmriMosaicZDim === activeDim);
             if (mipActive || cutawayActive || tiles || (activeDim === same && mosaic)
-                || (activeDim === other && flip_x !== flip_y)) { _crossfadeViewAround(change); return; }
+                || (activeDim === other && flip_x !== flip_y)) { _crossfadeViewAround(change, true); return; }
             if (activeDim === same) { _quarterTurnAround(change, boxes, axis === 'x' ? 'mirrorX' : 'mirrorY', null, 1, true); return; }
             if (activeDim === other) { _quarterTurnAround(change, boxes, 'flip', null, 1, true); return; }
             const od = [dim_x, dim_y, flip_x, flip_y];
@@ -9880,7 +9892,7 @@
                 .filter(el => el.getClientRects().length && el.getBoundingClientRect().width > 0 && !panes.some(b => b.contains(el)));
             const glide = glideAll.filter(el => !glideAll.some(o => o !== el && o.contains(el)));
             const glideOld = glide.map(el => el.getBoundingClientRect());
-            // morphBar (x / y): labels change places in the dim bar. A still copy stands
+            // morphBar (x / y / t / r / o): labels change places in the dim bar. A still copy stands
             // in until the landing, where the bar morphs piece by piece (_dimBarCrossfade)
             // instead of gliding whole.
             const barEl = document.getElementById('info');
@@ -24202,18 +24214,11 @@
             return `<span class="${cls}">${_dimIndexHtml(shownValue, maxValue)}</span>`;
         }
 
-        // Axis letters follow the data, not the screen: the array axis that
-        // started out as x keeps the letter x after t / r, so the DimBar and the
-        // orientation cross both show which way each axis now runs. Remembered
-        // per pair of displayed dims; picking different dims starts over.
-        let _axisIdent = null;
+        // Axis letters follow the screen: x is the horizontal dim, y the vertical
+        // one, so t / r / x-on-y swap the letters in the DimBar (and morph it).
         function _axisLetter(d) {
-            const key = Math.min(dim_x, dim_y) + ',' + Math.max(dim_x, dim_y);
-            if (!_axisIdent || _axisIdent.key !== key) {
-                _axisIdent = { key, letters: { [dim_x]: 'x', [dim_y]: 'y' } };
-            }
             if (d === dim_z || d === _mosaicDim2()) return 'z';
-            return _axisIdent.letters[d] || (d === dim_x ? 'x' : 'y');
+            return d === dim_x ? 'x' : 'y';
         }
 
         // Current case of a --match collection, named in the top-left corner
@@ -31779,7 +31784,7 @@
                     const od = [dim_x, dim_y, flip_x, flip_y];
                     _quarterTurnAround(() => _switchToNextPlane(planes, swapMosaic || undefined),
                         () => _mosaicTurnTiles() || [...document.querySelectorAll('#canvas-viewport, .compare-canvas-clip, .qv-canvas-clip')],
-                        'cube', () => _planeCubeTurn(od));
+                        'cube', () => _planeCubeTurn(od), 1, true);
                 },
             },
             'view.transpose': {
@@ -31820,7 +31825,7 @@
                     showStatus(wasMosaic ? 'transposed x/y (mosaic)' : 'transposed x/y');
                     if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
                     renderInfo(); saveState();
-                    }, _flipBoxes, 'flip');
+                    }, _flipBoxes, 'flip', null, 1, true);
                 },
             },
             'view.rotateOrFlip': {
@@ -31856,7 +31861,7 @@
                         showStatus('rotated 90°'); saveState();
                     }
                     if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
-                    }, _turnBoxes);
+                    }, _turnBoxes, 'turn', null, 1, true);
                 },
             },
             'theme.cycle': {
