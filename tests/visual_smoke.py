@@ -1374,6 +1374,7 @@ def run_smoke(page, base, client, tmp):
     # Press Shift+R again to disable
     _press(page, "Shift+R", wait=400)
     assert not page.locator('#roi-stats-hud').is_visible()
+    assert not page.locator('#roi-toolbar').is_visible()
     status_off = page.evaluate(
         "() => (document.getElementById('status') || {}).textContent || ''"
     )

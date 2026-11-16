@@ -390,19 +390,22 @@
         }
         #roi-fill-gauge {
             position: fixed; z-index: 100; display: none; pointer-events: none;
-            width: 108px; height: 132px; border-radius: var(--radius-lg);
-            background: color-mix(in srgb, var(--surface) 55%, transparent);
+            box-sizing: border-box; height: 132px; padding: 0 10px 0 6px; gap: 8px;
+            border-radius: var(--radius-lg);
+            background: var(--surface);
             border: 1px solid var(--border);
             color: var(--text); font: 10px ui-monospace, monospace;
+            font-variant-numeric: tabular-nums; white-space: nowrap;
         }
-        #roi-fill-gauge.visible { display: block; }
+        #roi-fill-gauge.visible { display: flex; }
         html.roi-fill-adjusting, html.roi-fill-adjusting * { cursor: none !important; }
-        #roi-fill-gauge svg { width: 100%; height: 100%; overflow: visible; }
+        #roi-fill-gauge svg { width: 26px; height: 100%; flex: none; overflow: visible; }
         #roi-fill-gauge .fill-scale { fill: var(--active-dim); fill-opacity: .18; stroke: var(--muted); }
-        #roi-fill-gauge .fill-tick { stroke: var(--muted); }
-        #roi-fill-gauge .fill-label { fill: var(--text); }
         #roi-fill-gauge .fill-marker { stroke: var(--active-dim); stroke-width: 2; }
-        #roi-fill-gauge .fill-value { fill: var(--text); font-weight: bold; }
+        #roi-fill-gauge .fill-text { display: flex; flex-direction: column; justify-content: space-between; padding: 8px 0; }
+        #roi-fill-gauge .fill-end { color: var(--muted); }
+        #roi-fill-gauge .fill-now { display: flex; flex-direction: column; gap: 2px; }
+        #roi-fill-gauge .fill-range { font-size: 12px; font-weight: 600; }
         /* Shared dynamic island glassmorphism for all colorbar containers */
         .cb-island {
             --cb-extra-top: 0px;
@@ -1321,9 +1324,10 @@
          * sits beside the image. Each row: name, mean, std, and a strip
          * showing where that ROI's values fall on an axis shared by all
          * ROIs (histogram between its min and max, tick at the mean). */
-        #roi-stats-hud {
+        #roi-stats-hud, #roi-toolbar {
             position: fixed;
-            z-index: 7;
+            /* above a quick-zoomed pane (30) */
+            z-index: 35;
             display: none;
             box-sizing: border-box;
             width: min(240px, calc(100vw - 20px));
@@ -1342,56 +1346,66 @@
             transition: opacity 160ms ease;
             scrollbar-width: thin; scrollbar-color: var(--border) transparent;
         }
-        #roi-stats-hud:hover, #roi-stats-hud:focus-within { opacity: 1; }
+        #roi-stats-hud:hover, #roi-stats-hud:focus-within, #roi-toolbar:hover { opacity: 1; }
         #roi-stats-hud.visible { display: flex; flex-direction: column; }
-        #roi-stats-hud .roi-hud-tools {
-            display: flex; align-items: center; gap: 1px; flex: none;
-            height: 28px; padding: 0 2px 0 6px;
+        #roi-stats-hud .roi-hud-head {
+            display: flex; align-items: center; flex: none;
+            height: 22px; padding: 0 6px;
         }
-        #roi-stats-hud .roi-hud-tools .roi-hud-title { margin-right: auto; }
-        #roi-stats-hud button.roi-hud-tool { width: 24px; height: 24px; padding: 0; border-radius: 6px; }
-        #roi-stats-hud button.roi-hud-tool svg { width: 14px; height: 14px; }
-        #roi-stats-hud button.roi-hud-tool.on {
+        #roi-toolbar {
+            display: none; gap: 2px; padding: 3px;
+            width: auto; max-height: none;
+            flex-direction: column; align-items: center;
+        }
+        #roi-toolbar.visible { display: flex; }
+        #roi-toolbar.horizontal { flex-direction: row; }
+        #roi-toolbar.over { box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
+        #roi-toolbar button.roi-hud-tool { width: 26px; height: 26px; padding: 0; border-radius: 6px; }
+        #roi-toolbar button.roi-hud-tool svg { width: 15px; height: 15px; }
+        #roi-toolbar button.roi-hud-tool.on {
             color: var(--active-dim);
             background: color-mix(in srgb, var(--active-dim) 14%, transparent);
         }
-        #roi-stats-hud .roi-hud-tool-sep { width: 1px; height: 14px; margin: 0 3px; background: var(--border); }
+        #roi-toolbar .roi-hud-tool-sep { width: 14px; height: 1px; margin: 2px 0; background: var(--border); }
+        #roi-toolbar.horizontal .roi-hud-tool-sep { width: 1px; height: 14px; margin: 0 2px; }
+        /* Folded forms when there is no room beside the panes: slim keeps the
+           means, tab only the colour dots. A peek opens the full table over
+           the image. */
+        #roi-stats-hud.peek { box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45); opacity: 1; }
+        #roi-stats-hud:is([data-form="slim"], [data-form="tab"]) { width: max-content; }
+        #roi-stats-hud:is([data-form="slim"], [data-form="tab"]) :is(.roi-hud-head, .roi-hud-foot, thead, .roi-hud-name, .roi-hud-std, .roi-hud-pm, .roi-hud-act, .roi-hud-detail) { display: none; }
+        #roi-stats-hud:is([data-form="slim"], [data-form="tab"]) .roi-hud-body { margin-top: 0; }
+        #roi-stats-hud:is([data-form="slim"], [data-form="tab"]) .roi-hud-measures { display: block; }
+        #roi-stats-hud:is([data-form="slim"], [data-form="tab"]) .roi-hud-swatch { margin-right: 0; }
+        #roi-stats-hud[data-form="slim"] th:first-child, #roi-stats-hud[data-form="slim"] td:first-child { padding-right: 8px; }
+        #roi-stats-hud[data-form="tab"] { padding: 4px 2px; }
+        #roi-stats-hud[data-form="tab"] :is(.roi-hud-num, .roi-hud-panerow) { display: none; }
+        #roi-stats-hud[data-form="tab"] td:first-child { padding: 0 6px; }
         #roi-stats-hud .roi-hud-body {
             flex: 1 1 auto; min-height: 0; overflow: auto; margin-top: 4px;
             scrollbar-width: thin; scrollbar-color: var(--border) transparent;
         }
-        #roi-stats-hud .roi-hud-help {
-            list-style: none; margin: 2px 0 4px; padding: 0 8px;
-            color: var(--muted); font-size: 10px; line-height: 18px;
-            white-space: nowrap;
-        }
-        #roi-stats-hud .roi-hud-help kbd {
-            font: inherit; color: var(--text);
-            padding: 0 4px; border: 1px solid var(--border); border-radius: 4px;
-        }
-        #roi-stats-hud button:disabled { opacity: 0.4; cursor: default; }
-        #roi-stats-hud button:disabled:hover { color: var(--muted); background: transparent; }
-        #roi-stats-hud button:disabled::after { display: none; }
+        :is(#roi-stats-hud, #roi-toolbar) button:disabled { opacity: 0.4; cursor: default; }
+        :is(#roi-stats-hud, #roi-toolbar) button:disabled:hover { color: var(--muted); background: transparent; }
+        :is(#roi-stats-hud, #roi-toolbar) button:disabled::after { display: none; }
         #roi-stats-hud .roi-hud-foot {
             display: flex; align-items: center; justify-content: flex-end; gap: 2px; flex: none;
             height: 26px; padding: 2px 2px 0; margin-top: 3px;
             border-top: 1px solid var(--border);
         }
-        #roi-stats-hud .roi-hud-grip { cursor: grab; touch-action: none; user-select: none; }
-        #roi-stats-hud .roi-hud-grip:active { cursor: grabbing; }
         #roi-stats-hud .roi-hud-title {
             color: color-mix(in srgb, var(--text) 70%, var(--muted));
             font-size: 10.5px; letter-spacing: 0.04em;
         }
-        #roi-stats-hud button {
+        :is(#roi-stats-hud, #roi-toolbar) button {
             display: inline-flex; align-items: center; justify-content: center; gap: 3px;
             height: 20px; min-width: 20px; padding: 0 5px;
             border: 0; border-radius: 5px; background: transparent;
             color: var(--muted); font: inherit; font-size: 10px; cursor: pointer;
         }
-        #roi-stats-hud button:hover { color: var(--text); background: var(--surface-2); }
-        #roi-stats-hud button:focus-visible { outline: 1px solid var(--text); outline-offset: -1px; }
-        #roi-stats-hud button svg { width: 12px; height: 12px; display: block; flex: none; }
+        :is(#roi-stats-hud, #roi-toolbar) button:hover { color: var(--text); background: var(--surface-2); }
+        :is(#roi-stats-hud, #roi-toolbar) button:focus-visible { outline: 1px solid var(--text); outline-offset: -1px; }
+        :is(#roi-stats-hud, #roi-toolbar) button svg { width: 12px; height: 12px; display: block; flex: none; }
         #roi-stats-hud .roi-hud-export[data-tip] { position: relative; }
         #roi-stats-hud .roi-hud-export[data-tip]::after {
             content: attr(data-tip);
@@ -10654,6 +10668,9 @@
             updateMiniMap();
             if (_fullscreenActive) _positionFullscreenInfo();
             if (typeof _cropRenderMainOverlay === 'function') _cropRenderMainOverlay();
+            // ROI outlines live on their own canvas sized to the image; resize
+            // and redraw it with every zoom step or it lags until the next render.
+            if (roiOverlayCanvas && roiOverlayCanvas.style.display !== 'none') _drawAllRois();
             _renderHoverPins();
             if (_hoverPins.length) _refreshHoverPins(false);
         }
@@ -20262,8 +20279,8 @@
         function _roiSetShape(shape) {
             const allowed = new Set(['circle', 'rect', 'freehand', 'floodfill']);
             if (!allowed.has(shape)) shape = 'circle';
-            if (shape === 'floodfill' && compareActive) {
-                showStatus('flood fill: not available side by side');
+            if (shape === 'floodfill' && (compareActive || qmriActive)) {
+                showStatus(`flood fill: not available ${compareActive ? 'side by side' : 'in qMRI mode'}`);
                 return;
             }
             _roiShape = shape;
@@ -20443,6 +20460,9 @@
         // waiting for its first image.
         function _roiUnavailableReason({ checkCanvases = false } = {}) {
             if (compareMvActive || compareQmriActive) return 'not in 3-plane or qMRI rows';
+            // A mosaic canvas holds many slices: a shape drawn on it spans
+            // tiles and measures nothing.
+            if (!compareActive && !multiViewActive && !qmriActive && dim_z >= 0) return 'not in mosaic';
             if (!compareActive) return '';
             const differ = 'the panes differ in size';
             // Arrays of different sizes shown side by side along their own dim.
@@ -20549,8 +20569,6 @@
         // The HUD shares one transient hover with every ROI drawing surface.
         let _roiHudHoverIdx = -1;
         let _roiHudMapIdx = null;
-        let _roiHudPosition = null;
-        let _roiHudDrag = null;
         let _roiGuardPending = false;
         function _setRoiHudHover(idx, mapIdx = _roiHudMapIdx) {
             idx = rectRoiMode && _rois[idx] && _rois[idx].visible !== false ? idx : -1;
@@ -20668,12 +20686,204 @@
             _reconcileRoiHud();
         }
 
+        // ── ROI tool bar and numbers panel ──────────────────────────────
+        // Two floating pieces; neither ever resizes the panes.
+        //  · Shape buttons: left of the panes (vertical), else under them on
+        //    the left (horizontal), else over the panes' top-left corner.
+        //  · Numbers, once an ROI exists: right of the panes in the widest form
+        //    that fits there — full table → slim (means only) → tab (colour
+        //    dots). A folded panel opens over the image while hovered, and for
+        //    a moment whenever an ROI is drawn or changed.
+        // Placement re-runs once the panes stop moving after any layout change
+        // (mode switch, quick zoom, resize), so it never chases an animation.
+        const _ROI_GAP = 10;
+        let _roiHudForm = 'full';
+        let _roiHudPeek = false;
+        let _roiHudPeekTimer = 0;
+        let _roiHudFlashUntil = 0;
+        let _roiHudFlashTimer = 0;
+        let _roiHudGeomSig = '';
+        let _roiHudFlashPending = false;
+        let _roiHudLayoutSig = '';
+        let _roiHudLayoutAt = 0;
+        let _roiHudPlacedSig = '';
+        let _roiHudWatchTimer = 0;
+        const _ROI_SHAPE_TIPS = {
+            circle: 'Circle · drag on the image',
+            rect: 'Rectangle · drag on the image',
+            freehand: 'Freehand · draw the outline on the image',
+            floodfill: 'Flood fill · hold on the image, drag up to take in more, down for less',
+        };
+
+        // One line per pane (side by side) or per map (qMRI) under each ROI.
+        function _roiHudPanes() {
+            const panes = _roiComparePanes();
+            if (panes.length) return panes.map(p => ({ key: p.key, label: p.label, stat: r => _roiPaneStat(r, p.key) }));
+            if (qmriActive && qmriViews.length) {
+                return qmriViews.map(v => ({
+                    key: `q${v.qmriIdx}`, qmriIdx: v.qmriIdx,
+                    label: QMRI_LABELS[v.colormap] || v.colormap || `map ${(v.qmriIdx ?? 0) + 1}`,
+                    stat: r => _roiHudStats(r, v),
+                }));
+            }
+            return [];
+        }
+        function _roiPaneEls() {
+            // Quick zoom moves the image box, not its pane: measure the box.
+            let qz = null;
+            try { qz = _quickZoomPane; } catch (_) { /* declared further down; not set up yet */ }
+            if (qz) return [qz.querySelector(QUICK_ZOOM_IMAGE_SEL) || qz];
+            if (multiViewActive) return mvViews.map(v => v.pane);
+            if (qmriActive) return qmriViews.map(v => v.canvas.closest('.qv-pane'));
+            if (compareActive) return [...document.querySelectorAll('#compare-view-wrap .compare-pane')];
+            return [_overlayPaletteAnchor()];
+        }
+        function _roiLayout() {
+            const shown = r => r.width > 0 && r.height > 0;
+            const panes = _roiPaneEls().filter(Boolean).map(el => el.getBoundingClientRect()).filter(shown);
+            if (!panes.length) return null;
+            // Colourbars and the dim bar are as much in the way as the images.
+            const chrome = [...document.querySelectorAll('#slim-cb-wrap, .cb-island, #info')]
+                .map(el => el.getBoundingClientRect()).filter(shown);
+            const union = {
+                left: Math.min(...panes.map(r => r.left)), top: Math.min(...panes.map(r => r.top)),
+                right: Math.max(...panes.map(r => r.right)), bottom: Math.max(...panes.map(r => r.bottom)),
+            };
+            const sig = [union, ...chrome].map(r => [r.left, r.top, r.right, r.bottom].map(Math.round).join(',')).join(';')
+                + `|${innerWidth}x${innerHeight}`;
+            return { panes, chrome, union, sig };
+        }
+        function _roiBoxHits(b, rects) {
+            return rects.some(r => b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top);
+        }
+        function _roiBoxFree(b, L) {
+            const m = _ROI_GAP / 2;
+            return b.left >= m && b.top >= m && b.right <= innerWidth - m && b.bottom <= innerHeight - m
+                && !_roiBoxHits(b, L.panes) && !_roiBoxHits(b, L.chrome);
+        }
+        const _roiBox = (x, y, w, h) => ({ left: x, top: y, right: x + w, bottom: y + h });
+
+        function _placeRoiToolbar(bar, L) {
+            const g = _ROI_GAP, U = L.union;
+            bar.classList.remove('horizontal', 'over');
+            const vw = bar.offsetWidth, vh = bar.offsetHeight;
+            bar.classList.add('horizontal');
+            const hw = bar.offsetWidth, hh = bar.offsetHeight;
+            const below = Math.max(U.bottom, ...L.chrome.filter(r => r.top >= U.bottom - 1).map(r => r.bottom));
+            const tries = [
+                { horiz: false, x: U.left - g - vw, y: U.top },
+                { horiz: true, x: U.left, y: U.bottom + g },
+                { horiz: true, x: g, y: U.bottom + g },
+                { horiz: true, x: U.left, y: below + g },
+                { horiz: true, x: g, y: innerHeight - g - hh },
+            ];
+            const pick = tries.find(t => _roiBoxFree(_roiBox(t.x, t.y, t.horiz ? hw : vw, t.horiz ? hh : vh), L))
+                || { horiz: false, over: true, x: U.left + g, y: U.top + g };
+            bar.classList.toggle('horizontal', pick.horiz);
+            bar.classList.toggle('over', !!pick.over);
+            bar.style.left = `${Math.round(pick.x)}px`;
+            bar.style.top = `${Math.round(pick.y)}px`;
+        }
+
+        function _placeRoiStats(hud, L) {
+            const g = _ROI_GAP, U = L.union;
+            const top = Math.max(g, Math.round(U.top));
+            hud.style.maxHeight = `${Math.max(80, Math.min(400, innerHeight - top - g))}px`;
+            const size = form => { hud.dataset.form = form; return { w: hud.offsetWidth, h: hud.offsetHeight }; };
+            let form = null, x = 0, w = 0;
+            for (const f of ['full', 'slim', 'tab']) {
+                const s = size(f);
+                if (_roiBoxFree(_roiBox(U.right + g, top, s.w, s.h), L)) { form = f; x = U.right + g; w = s.w; break; }
+            }
+            if (!form) {
+                // Not even the tab fits: it sits on the panes' right edge.
+                form = 'tab';
+                w = size('tab').w;
+                x = innerWidth - w - g / 2;
+            }
+            _roiHudForm = form;
+            const open = form !== 'full' && (_roiHudPeek || performance.now() < _roiHudFlashUntil
+                || _roiHudRenaming >= 0 || hud.matches(':focus-within'));
+            if (open) {
+                // Opens leftwards over the image, its right edge where the
+                // folded panel's is, so the pointer stays inside it.
+                const right = x + w;
+                x = Math.max(g / 2, right - size('full').w);
+            }
+            hud.dataset.form = open ? 'full' : form;
+            hud.classList.toggle('peek', open);
+            hud.style.left = `${Math.round(x)}px`;
+            hud.style.top = `${top}px`;
+        }
+
+        function _placeRoiHud() {
+            const bar = document.getElementById('roi-toolbar');
+            const hud = document.getElementById('roi-stats-hud');
+            const L = _roiLayout();
+            if (!L) return;
+            _roiHudPlacedSig = L.sig;
+            if (bar && bar.classList.contains('visible')) _placeRoiToolbar(bar, L);
+            if (hud && hud.classList.contains('visible')) _placeRoiStats(hud, L);
+        }
+        // Light poll while ROI mode is on: re-place once the panes have held
+        // still for a moment after moving.
+        function _roiHudWatch() {
+            _roiHudWatchTimer = 0;
+            if (!rectRoiMode) return;
+            const L = _roiLayout();
+            const sig = L ? L.sig : '';
+            const now = performance.now();
+            if (sig !== _roiHudLayoutSig) { _roiHudLayoutSig = sig; _roiHudLayoutAt = now; }
+            else if (L && sig !== _roiHudPlacedSig && now - _roiHudLayoutAt >= 120) _placeRoiHud();
+            _roiHudWatchTimer = setTimeout(_roiHudWatch, 60);
+        }
+        function _roiHudFlash() {
+            _roiHudFlashUntil = performance.now() + 2000;
+            clearTimeout(_roiHudFlashTimer);
+            _roiHudFlashTimer = setTimeout(() => { if (rectRoiMode) _placeRoiHud(); }, 2050);
+        }
+        function _roiGeometrySig() {
+            return _rois.map(r => [r.id, r.type, r.x0, r.y0, r.x1, r.y1, r.cx, r.cy, r.r,
+                r.points && r.points.length, r.bbox && [r.bbox.x0, r.bbox.y0, r.bbox.x1, r.bbox.y1].join(':'),
+                r.mask_b64 && r.mask_b64.length, r.visible !== false].join(',')).join('|');
+        }
+
+        function _reconcileRoiToolbar(visible) {
+            let bar = document.getElementById('roi-toolbar');
+            if (!bar && !visible) return;
+            if (!bar) {
+                bar = document.createElement('div');
+                bar.id = 'roi-toolbar';
+                bar.setAttribute('role', 'toolbar');
+                bar.setAttribute('aria-label', 'ROI shapes');
+                document.body.appendChild(bar);
+            }
+            bar.classList.toggle('visible', !!visible);
+            bar.setAttribute('aria-hidden', String(!visible));
+            if (!visible) return;
+            const noFill = compareActive ? 'not available side by side' : qmriActive ? 'not available in qMRI mode' : '';
+            let html = '';
+            for (const shapeName of ['circle', 'rect', 'freehand', 'floodfill']) {
+                if (shapeName === 'floodfill') html += '<span class="roi-hud-tool-sep" aria-hidden="true"></span>';
+                const off = shapeName === 'floodfill' && noFill;
+                const tip = off ? `Flood fill · ${noFill}` : _ROI_SHAPE_TIPS[shapeName];
+                const on = shapeName === _roiShape && !off;
+                html += `<button type="button" class="roi-hud-tool${on ? ' on' : ''}" data-shape="${shapeName}" aria-label="${_roiShapeLabel(shapeName)}" aria-pressed="${on}" title="${tip}"${off ? ' disabled' : ''}>${_ROI_SHAPE_ICONS[shapeName]}</button>`;
+            }
+            if (bar._content !== html) {
+                bar._content = html;
+                bar.innerHTML = html;
+                bar.querySelectorAll('.roi-hud-tool').forEach(btn => btn.addEventListener('click', e => {
+                    e.stopPropagation();
+                    _roiSetShape(btn.dataset.shape);
+                }));
+            }
+        }
+
         function _reconcileRoiHud() {
             const hud = document.getElementById('roi-stats-hud');
             if (!hud) return;
             if (hud.parentElement !== document.body) document.body.appendChild(hud);
-            // The panel opens with ROI mode: shape buttons on top straight
-            // away, the table and its footer once there is something to list.
             // A view regions cannot be drawn in was entered with ROI mode on:
             // put the tool away (the regions themselves are kept).
             if (rectRoiMode && _roiUnavailableReason() && !_roiGuardPending) {
@@ -20686,75 +20896,69 @@
                     showStatus(`ROI mode: ${why}`);
                 });
             }
-            const visible = rectRoiMode && !compareMvActive && !compareQmriActive;
+            const toolOn = rectRoiMode && !compareMvActive && !compareQmriActive;
+            _reconcileRoiToolbar(toolOn);
+            if (toolOn && !_roiHudWatchTimer) _roiHudWatch();
+            const hasRows = _roiVisible && _rois.length > 0;
+            const visible = toolOn && hasRows;
             hud.classList.toggle('visible', !!visible);
             hud.setAttribute('aria-hidden', String(!visible));
-            if (!visible) { _roiHudHoverIdx = -1; return; }
-            const panes = _roiComparePanes();
-            const hasRows = _roiVisible && _rois.length > 0;
+            if (!visible) {
+                _roiHudHoverIdx = -1;
+                _roiHudPeek = false;
+                _roiHudGeomSig = '';
+                if (toolOn) _placeRoiHud();
+                return;
+            }
             if (_roiHudRenaming >= 0) return;  // keep the name field alive while typing
+            // Drawn or changed an ROI: show the numbers for a moment even when
+            // the panel is folded. Wait until the drag is over.
+            const geom = _roiGeometrySig();
+            if (geom !== _roiHudGeomSig) { _roiHudGeomSig = geom; _roiHudFlashPending = true; }
+            if (_roiHudFlashPending && !roiDragging && !_roiFloodFillDrag) { _roiHudFlashPending = false; _roiHudFlash(); }
             for (const i of [..._roiHudExpanded]) if (i >= _rois.length) _roiHudExpanded.delete(i);
-            const map = qmriActive ? (qmriViews.find(v => v.qmriIdx === _roiHudMapIdx) || qmriViews[0]) : null;
-            const heading = map ? `ROI · ${QMRI_LABELS[map.colormap] || map.colormap || 'map'}` : 'ROI analysis';
-            // Side by side: every ROI lists one line of numbers per pane.
-            const perRoi = _rois.map(r => panes.length ? panes.map(p => _roiPaneStat(r, p.key)) : [_roiHudStats(r, map)]);
-            const all = perRoi.flat();
+            const panes = _roiHudPanes();
+            // Side by side / qMRI: every ROI lists one line of numbers per pane or map.
+            const perRoi = _rois.map(r => panes.length ? panes.map(p => p.stat(r)) : [_roiHudStats(r, null)]);
             const shown = perRoi.flatMap((list, i) => _rois[i].visible !== false ? list.filter(Boolean) : []);
-            const fmtMean = _roiHudColumnFormat(all.map(st => st?.mean));
-            const fmtStd = _roiHudColumnFormat(all.map(st => st?.std));
+            // One number format per pane / map: T1 in the thousands must not
+            // round PD in the same table to whole numbers.
+            const nCols = Math.max(1, panes.length);
+            const fmtMean = Array.from({ length: nCols }, (_, k) => _roiHudColumnFormat(perRoi.map(l => l[k]?.mean)));
+            const fmtStd = Array.from({ length: nCols }, (_, k) => _roiHudColumnFormat(perRoi.map(l => l[k]?.std)));
             const lo = shown.length ? Math.min(...shown.map(st => st.min).filter(Number.isFinite)) : NaN;
             const hi = shown.length ? Math.max(...shown.map(st => st.max).filter(Number.isFinite)) : NaN;
             const copyIcon = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/></svg>';
             const dlIcon = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/></svg>';
-            let html = `<div class="roi-hud-tools roi-hud-grip" title="Drag to move"><span class="roi-hud-title">${_roiHtmlEscape(heading)}</span>`;
-            for (const shapeName of ['circle', 'rect', 'freehand', 'floodfill']) {
-                if (shapeName === 'floodfill') html += '<span class="roi-hud-tool-sep" aria-hidden="true"></span>';
-                const label = _roiShapeLabel(shapeName);
-                html += `<button type="button" class="roi-hud-tool${shapeName === _roiShape ? ' on' : ''}" data-shape="${shapeName}" aria-label="${label}" aria-pressed="${shapeName === _roiShape}" title="${label}">${_ROI_SHAPE_ICONS[shapeName]}</button>`;
-            }
-            html += '</div>';
+            let html = '<div class="roi-hud-head"><span class="roi-hud-title">ROI analysis</span></div>';
             html += '<div class="roi-hud-body">';
-            if (hasRows) {
-                html += `<table aria-label="ROI mean and standard deviation"><thead><tr><th scope="col"><span class="roi-hud-sr">ROI</span></th><th scope="col"><span class="roi-hud-measures"><span>mean</span><span class="roi-hud-pm">±</span><span>std</span></span></th><th scope="col"><span class="roi-hud-sr">actions</span></th></tr></thead><tbody>`;
-                const measures = stats => `<span class="roi-hud-measures"><span class="roi-hud-mean">${stats ? fmtMean(stats.mean) : '…'}</span><span class="roi-hud-pm">${stats ? '±' : ''}</span><span class="roi-hud-std">${stats ? fmtStd(stats.std) : ''}</span></span>`;
-                _rois.forEach((r, i) => {
-                    const stats = panes.length ? null : perRoi[i][0];
-                    const name = _roiName(i);
-                    const open = _roiHudExpanded.has(i);
-                    html += `<tr class="roi-hud-row${r.visible === false ? ' off' : ''}${open ? ' open' : ''}" data-roi-idx="${i}" tabindex="0" aria-expanded="${open}" aria-label="ROI ${_roiHtmlEscape(name)}" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}">`
-                        + `<td class="roi-hud-namecell"><span class="roi-hud-swatch"></span><span class="roi-hud-name" title="${_roiHtmlEscape(name)} · double-click to rename">${_roiHtmlEscape(name)}</span></td>`
-                        + (panes.length ? '<td class="roi-hud-num"></td>'
-                            : `<td class="roi-hud-num" title="${_roiStatsFmt(stats?.mean)} ± ${_roiStatsFmt(stats?.std)}">${measures(stats)}</td>`)
-                        + `<td><button type="button" class="roi-hud-delete" aria-label="Delete ROI ${_roiHtmlEscape(name)}" title="Delete ROI"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M3 4h10M6 4V2h4v2M4 4l.6 10h6.8L12 4M6.5 6v6M9.5 6v6"/></svg></button></td></tr>`;
-                    panes.forEach((p, k) => {
-                        const st = perRoi[i][k];
-                        html += `<tr class="roi-hud-panerow${r.visible === false ? ' off' : ''}${k === panes.length - 1 ? ' last' : ''}" data-roi-idx="${i}">`
-                            + `<td title="${_roiHtmlEscape(p.label)}">${_roiHtmlEscape(p.label)}</td>`
-                            + `<td class="roi-hud-num" title="${_roiStatsFmt(st?.mean)} ± ${_roiStatsFmt(st?.std)}">${measures(st)}</td><td></td></tr>`;
-                    });
-                    if (open) html += `<tr class="roi-hud-detail" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}"><td colspan="3">${_roiHudDetailHtml(r, lo, hi)}</td></tr>`;
+            html += `<table aria-label="ROI mean and standard deviation"><thead><tr><th scope="col"><span class="roi-hud-sr">ROI</span></th><th scope="col"><span class="roi-hud-measures"><span>mean</span><span class="roi-hud-pm">±</span><span>std</span></span></th><th scope="col" class="roi-hud-act"><span class="roi-hud-sr">actions</span></th></tr></thead><tbody>`;
+            const measures = (stats, k = 0) => `<span class="roi-hud-measures"><span class="roi-hud-mean">${stats ? fmtMean[k](stats.mean) : '…'}</span><span class="roi-hud-pm">${stats ? '±' : ''}</span><span class="roi-hud-std">${stats ? fmtStd[k](stats.std) : ''}</span></span>`;
+            _rois.forEach((r, i) => {
+                const stats = panes.length ? null : perRoi[i][0];
+                const name = _roiName(i);
+                const open = _roiHudExpanded.has(i);
+                html += `<tr class="roi-hud-row${r.visible === false ? ' off' : ''}${open ? ' open' : ''}" data-roi-idx="${i}" tabindex="0" aria-expanded="${open}" aria-label="ROI ${_roiHtmlEscape(name)}" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}">`
+                    + `<td class="roi-hud-namecell"><span class="roi-hud-swatch"></span><span class="roi-hud-name" title="${_roiHtmlEscape(name)} · double-click to rename">${_roiHtmlEscape(name)}</span></td>`
+                    + (panes.length ? '<td class="roi-hud-num"></td>'
+                        : `<td class="roi-hud-num" title="${_roiStatsFmt(stats?.mean)} ± ${_roiStatsFmt(stats?.std)}">${measures(stats)}</td>`)
+                    + `<td class="roi-hud-act"><button type="button" class="roi-hud-delete" aria-label="Delete ROI ${_roiHtmlEscape(name)}" title="Delete ROI (Backspace)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M3 4h10M6 4V2h4v2M4 4l.6 10h6.8L12 4M6.5 6v6M9.5 6v6"/></svg></button></td></tr>`;
+                panes.forEach((p, k) => {
+                    const st = perRoi[i][k];
+                    html += `<tr class="roi-hud-panerow${r.visible === false ? ' off' : ''}${k === panes.length - 1 ? ' last' : ''}" data-roi-idx="${i}"${p.qmriIdx !== undefined ? ` data-map-idx="${p.qmriIdx}"` : ''}>`
+                        + `<td title="${_roiHtmlEscape(p.label)}">${_roiHtmlEscape(p.label)}</td>`
+                        + `<td class="roi-hud-num" title="${_roiStatsFmt(st?.mean)} ± ${_roiStatsFmt(st?.std)}">${measures(st, k)}</td><td class="roi-hud-act"></td></tr>`;
                 });
-                html += '</tbody></table>';
-            } else {
-                const how = _roiShape === 'floodfill'
-                    ? 'Hold to fill · drag \u2195 to spread'
-                    : 'Pick a shape, drag on the image';
-                html += `<ul class="roi-hud-help"><li>${how}</li>`
-                    + '<li>Click a row for its details</li>'
-                    + '<li><kbd>Backspace</kbd> deletes the selected ROI</li></ul>';
-            }
-            html += '</div>';
-            html += '<div class="roi-hud-foot roi-hud-grip" title="Drag to move">'
-                + `<button type="button" class="roi-hud-export"${hasRows ? '' : ' disabled'} data-export="copy" data-tip="Copy the table · paste into a spreadsheet" aria-label="Copy ROI statistics table">${copyIcon}copy</button>`
-                + `<button type="button" class="roi-hud-export"${hasRows ? '' : ' disabled'} data-export="csv" data-tip="Download the numbers (.csv)" aria-label="Download ROI statistics as CSV">${dlIcon}CSV</button>`
-                + `<button type="button" class="roi-hud-export"${hasRows ? '' : ' disabled'} data-export="mask" data-tip="Download the ROI mask (.npy)" aria-label="Download ROI mask as npy">${dlIcon}mask</button></div>`;
+                if (open) html += `<tr class="roi-hud-detail" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}"><td colspan="3">${_roiHudDetailHtml(r, lo, hi)}</td></tr>`;
+            });
+            html += '</tbody></table></div>';
+            html += '<div class="roi-hud-foot">'
+                + `<button type="button" class="roi-hud-export" data-export="copy" data-tip="Copy the table · paste into a spreadsheet" aria-label="Copy ROI statistics table">${copyIcon}copy</button>`
+                + `<button type="button" class="roi-hud-export" data-export="csv" data-tip="Download the numbers (.csv)" aria-label="Download ROI statistics as CSV">${dlIcon}CSV</button>`
+                + `<button type="button" class="roi-hud-export" data-export="mask" data-tip="Download the ROI mask (.npy)" aria-label="Download ROI mask as npy">${dlIcon}mask</button></div>`;
             if (hud._content !== html) {
                 hud._content = html;
                 hud.innerHTML = html;
-                hud.querySelectorAll('.roi-hud-tool').forEach(btn => btn.addEventListener('click', e => {
-                    e.stopPropagation();
-                    _roiSetShape(btn.dataset.shape);
-                }));
                 hud.querySelectorAll('.roi-hud-export').forEach(btn => btn.addEventListener('click', e => {
                     e.stopPropagation();
                     if (btn.dataset.export === 'copy') _copyRoiTable();
@@ -20787,51 +20991,25 @@
                     });
                 });
                 hud.querySelectorAll('.roi-hud-panerow').forEach(row => {
-                    row.addEventListener('pointerenter', () => _setRoiHudHover(Number(row.dataset.roiIdx)));
+                    const map = row.dataset.mapIdx !== undefined ? Number(row.dataset.mapIdx) : _roiHudMapIdx;
+                    row.addEventListener('pointerenter', () => _setRoiHudHover(Number(row.dataset.roiIdx), map));
                 });
-                hud.onpointerleave = () => _setRoiHudHover(-1);
             }
-            hud.querySelectorAll('.roi-hud-row, .roi-hud-panerow').forEach(row => row.classList.toggle('focused', Number(row.dataset.roiIdx) === _roiHudHoverIdx));
-            const canvases = multiViewActive ? mvViews.map(v => v.pane) : qmriActive ? qmriViews.map(v => v.canvas.closest('.qv-pane'))
-                : panes.length ? panes.map(p => p.cv.closest('.compare-pane') || p.cv) : [_overlayPaletteAnchor()];
-            const rects = canvases.filter(Boolean).map(c => c.getBoundingClientRect()).filter(r => r.width && r.height);
-            const gap = 10, width = hud.offsetWidth, height = hud.offsetHeight;
-            let position = _roiHudPosition;
-            if (!position && rects.length) {
-                const rect = { left: Math.min(...rects.map(r => r.left)), top: Math.min(...rects.map(r => r.top)), right: Math.max(...rects.map(r => r.right)), bottom: Math.max(...rects.map(r => r.bottom)) };
-                // Beside the image, top-aligned; failing that, its top-left
-                // corner. Never above/below: those spots move as it grows.
-                const candidates = [
-                    { x: rect.right + gap, y: rect.top },
-                    { x: rect.left - width - gap, y: rect.top },
-                ];
-                // Choose the side by width only: the panel grows downwards as
-                // ROIs are added, and must not hop to another side when it does.
-                position = candidates.find(p => p.x >= gap && p.y >= gap && p.x + width <= innerWidth - gap) || { x: rect.left + gap, y: rect.top + gap };
-            }
-            if (position) {
-                hud.style.left = `${Math.max(gap, Math.min(innerWidth - width - gap, position.x))}px`;
-                hud.style.top = `${Math.max(gap, Math.min(innerHeight - height - gap, position.y))}px`;
-            }
-            hud.onpointerdown = e => {
-                if (e.button !== 0 || !e.target.closest('.roi-hud-grip') || e.target.closest('button')) return;
-                e.preventDefault();
-                e.stopPropagation();
-                const rect = hud.getBoundingClientRect();
-                _roiHudDrag = { x: e.clientX - rect.left, y: e.clientY - rect.top, pointerId: e.pointerId };
-                hud.setPointerCapture(e.pointerId);
+            hud.onpointerenter = () => {
+                clearTimeout(_roiHudPeekTimer);
+                if (_roiHudPeek || _roiHudForm === 'full') return;
+                _roiHudPeek = true;
+                _placeRoiHud();
             };
+            hud.onpointerleave = () => {
+                _setRoiHudHover(-1);
+                clearTimeout(_roiHudPeekTimer);
+                if (!_roiHudPeek) return;
+                _roiHudPeekTimer = setTimeout(() => { _roiHudPeek = false; _placeRoiHud(); }, 300);
+            };
+            hud.querySelectorAll('.roi-hud-row, .roi-hud-panerow').forEach(row => row.classList.toggle('focused', Number(row.dataset.roiIdx) === _roiHudHoverIdx));
+            _placeRoiHud();
         }
-        document.addEventListener('pointermove', e => {
-            if (!_roiHudDrag || e.pointerId !== _roiHudDrag.pointerId) return;
-            _roiHudPosition = { x: e.clientX - _roiHudDrag.x, y: e.clientY - _roiHudDrag.y };
-            _reconcileRoiHud();
-        });
-        function _endRoiHudDrag(e) {
-            if (_roiHudDrag?.pointerId === e.pointerId) _roiHudDrag = null;
-        }
-        document.addEventListener('pointerup', _endRoiHudDrag);
-        document.addEventListener('pointercancel', _endRoiHudDrag);
         document.addEventListener('pointermove', e => {
             if (!rectRoiMode || roiDragging) { _setRoiHudHover(-1); return; }
             if (e.target.closest?.('#roi-stats-hud')) return;
@@ -28368,7 +28546,7 @@
         }
 
         function _floodFillPreviewRoi(data, opts = {}) {
-            if (!data || !data.bbox || !data.mask_b64) return null;
+            if (!data || !data.bbox || !(data.mask_b64 || data._localMask)) return null;
             // For a scoped (3D) flood fill, the server returns the full roi object
             // (with scope_dim, slices, scope). Start from it so committed stats use
             // the grown region across the broadcast dimension; overlay display fields.
@@ -28387,6 +28565,12 @@
                 dimX: opts.view ? opts.view.dimX : dim_x,
                 dimY: opts.view ? opts.view.dimY : dim_y,
             });
+            if (data._localMask) {
+                // Instant preview: the mask is already bytes; seed the decode
+                // cache under a key no real base64 mask can equal.
+                roi.mask_b64 = roi._maskB64Key = `local:${data.n}:${data.tolerance}`;
+                roi._maskBytes = data._localMask;
+            }
             return roi;
         }
 
@@ -28430,15 +28614,17 @@
                 hud = document.createElement('div');
                 hud.id = 'roi-fill-gauge';
                 hud.setAttribute('role', 'img');
-                hud.innerHTML = `<svg viewBox="0 0 108 132" aria-hidden="true">
-                    <path class="fill-scale" d="M44 18 H64 L54 114 Z"/>
-                    <path class="fill-tick" d="M66 18 h5 M60 66 h11 M56 114 h15"/>
-                    <text class="fill-label" x="75" y="21">100%</text>
-                    <text class="fill-label" x="75" y="69">10%</text>
-                    <text class="fill-label" x="75" y="117">1%</text>
-                    <g class="fill-cursor"><path class="fill-marker" d="M43 0 H65"/>
-                    <text class="fill-value" x="39" y="3" text-anchor="end"></text></g>
-                </svg>`;
+                // The wedge says where on the range you are; the words say
+                // what that means: which values join, and how many pixels.
+                hud.innerHTML = `<svg viewBox="0 0 26 132" aria-hidden="true">
+                    <path class="fill-scale" d="M3 14 H23 L13 118 Z"/>
+                    <path class="fill-cursor fill-marker" d="M1 0 H25"/>
+                </svg>
+                <div class="fill-text">
+                    <span class="fill-end">\u2191 everything</span>
+                    <span class="fill-now"><span class="fill-range"></span><span class="fill-count"></span></span>
+                    <span class="fill-end">\u2193 clicked value only</span>
+                </div>`;
                 document.body.appendChild(hud);
             }
             hud.classList.toggle('visible', !!active);
@@ -28446,9 +28632,24 @@
             if (!active) return;
             const value = Math.max(.01, Math.min(1, drag.tolerance));
             const fraction = Math.log(value / .01) / Math.log(100);
-            hud.querySelector('.fill-cursor').setAttribute('transform', `translate(0 ${114 - fraction * 96})`);
-            hud.querySelector('.fill-value').textContent = `${Math.round(value * 100)}%`;
-            hud.setAttribute('aria-label', `Flood fill sensitivity ${Math.round(value * 100)}%, minimum 1%, maximum 100%`);
+            hud.querySelector('.fill-cursor').setAttribute('transform', `translate(0 ${118 - fraction * 104})`);
+            // Values that join: the clicked value give or take the tolerance.
+            const raw = _roiFillRaw && _roiFillRaw.key === _roiFillRawKey(drag.view) ? _roiFillRaw : null;
+            const absRange = Number.isFinite(drag.absRange) ? drag.absRange : raw && raw.data ? raw.absRange : NaN;
+            const seed = drag.seedValue;
+            const range = Number.isFinite(seed) && Number.isFinite(absRange)
+                ? `${_roiStatsFmt(seed - drag.tolerance * absRange)} \u2013 ${_roiStatsFmt(seed + drag.tolerance * absRange)}`
+                : '\u2026';
+            // Pixel count for the sensitivity on screen. A 3D grow is only
+            // known once the server has answered for it.
+            const same = t => Number.isFinite(t) && Math.abs(t - drag.tolerance) < 0.0001;
+            const is3d = Number.isInteger(drag.scopeDim) && drag.scopeDim >= 0;
+            const n = drag.data && same(drag.dataTolerance) ? drag.data.n
+                : !is3d && drag.local && same(drag.local.tolerance) ? drag.local.n : null;
+            const count = n == null ? '\u2026' : `${Number(n).toLocaleString('en-US')} ${is3d ? 'voxels' : n === 1 ? 'pixel' : 'pixels'}`;
+            hud.querySelector('.fill-range').textContent = range;
+            hud.querySelector('.fill-count').textContent = count;
+            hud.setAttribute('aria-label', `Flood fill takes values ${range}, ${count}. Drag up to take more, down to take less.`);
             const width = hud.offsetWidth, height = hud.offsetHeight;
             const x = drag.clientX + 20 + width <= window.innerWidth - 8 ? drag.clientX + 20 : drag.clientX - width - 20;
             hud.style.left = `${Math.max(8, Math.min(window.innerWidth - width - 8, x))}px`;
@@ -28461,8 +28662,108 @@
         window.addEventListener('resize', _reconcileFloodfillSensitivityHud);
         window.addEventListener('blur', () => _updateRoiFloodfillSensitivityIndicator(_floodFillTolerance, false));
 
+        // Instant flood-fill preview. The server owns the final region (and the
+        // 3D grow), but one round trip per drag step lags badly over a
+        // forwarded port. Fill the shown plane here from the raw slice so each
+        // drag step paints at once; the server result replaces it when it
+        // arrives for the same sensitivity, and is what gets committed.
+        let _roiFillRaw = null; // {key, data: Float32Array|null, w, h, absRange}
+        function _roiFillRawKey(view) {
+            const dx = view ? view.dimX : dim_x, dy = view ? view.dimY : dim_y;
+            return `${sid}|${dx}|${dy}|${indices.join(',')}|${complexMode}`;
+        }
+        // Cached raw plane for `view`, or null while it is being fetched.
+        function _roiFillRawFor(view) {
+            const key = _roiFillRawKey(view);
+            if (_roiFillRaw && _roiFillRaw.key === key) return _roiFillRaw.data ? _roiFillRaw : null;
+            const entry = { key, data: null };
+            _roiFillRaw = entry;
+            const params = new URLSearchParams({
+                dim_x: String(view ? view.dimX : dim_x), dim_y: String(view ? view.dimY : dim_y),
+                indices: indices.join(','), complex_mode: String(complexMode), log_scale: 'false',
+            });
+            proxyFetch(`/lebesgue/${sid}?${params}`).then(async resp => {
+                if (!resp.ok) return;
+                const w = parseInt(resp.headers.get('X-ArrayView-Width')) || 0;
+                const h = parseInt(resp.headers.get('X-ArrayView-Height')) || 0;
+                const data = new Float32Array(await resp.arrayBuffer());
+                if (!w || !h || data.length !== w * h) return;
+                // Same scale as the server: tolerance is a fraction of the
+                // spread of |value| over the plane.
+                let lo = Infinity, hi = -Infinity;
+                for (let i = 0; i < data.length; i++) {
+                    const a = Math.abs(data[i]);
+                    if (a < lo) lo = a;
+                    if (a > hi) hi = a;
+                }
+                Object.assign(entry, { data, w, h, absRange: hi >= lo ? hi - lo : 0 });
+                const drag = _roiFloodFillDrag;
+                if (drag && !drag.released && _roiFillRaw === entry && _roiFillRawKey(drag.view) === key) _roiFloodFillLocalPreview(drag);
+            }).catch(() => {});
+            return null;
+        }
+        // 4-connected fill on the raw plane, in data space (flip undone), in the
+        // shape of a server reply so the same preview/draw path takes it.
+        function _roiLocalFloodFill(raw, drag) {
+            const { data, w, h } = raw;
+            const dimXRef = drag.view ? drag.view.dimX : dim_x;
+            const dimYRef = drag.view ? drag.view.dimY : dim_y;
+            const fx = drag.view ? !!flipDims[dimXRef] : flip_x;
+            const fy = drag.view ? !!flipDims[dimYRef] : flip_y;
+            const sx = fx ? w - 1 - drag.px : drag.px;
+            const sy = fy ? h - 1 - drag.py : drag.py;
+            if (sx < 0 || sy < 0 || sx >= w || sy >= h) return null;
+            const seed = data[sy * w + sx];
+            if (!Number.isFinite(seed)) return null;
+            // A 3D grow measures the spread over the whole volume: reuse the
+            // scale the server reported, so both agree on the window.
+            const absRange = Number.isFinite(drag.absRange) ? drag.absRange : raw.absRange + 1e-10;
+            const tol = drag.tolerance * absRange;
+            const mask = new Uint8Array(w * h);
+            const stack = new Int32Array(w * h);
+            let top = 0, n = 0, sum = 0, sum2 = 0, mn = Infinity, mx = -Infinity;
+            let x0 = sx, x1 = sx, y0 = sy, y1 = sy;
+            mask[sy * w + sx] = 1;
+            stack[top++] = sy * w + sx;
+            while (top) {
+                const p = stack[--top];
+                const v = data[p];
+                n++; sum += v; sum2 += v * v;
+                if (v < mn) mn = v;
+                if (v > mx) mx = v;
+                const x = p % w, y = (p - x) / w;
+                if (x < x0) x0 = x; else if (x > x1) x1 = x;
+                if (y < y0) y0 = y; else if (y > y1) y1 = y;
+                if (x > 0 && !mask[p - 1] && Math.abs(data[p - 1] - seed) <= tol) { mask[p - 1] = 1; stack[top++] = p - 1; }
+                if (x < w - 1 && !mask[p + 1] && Math.abs(data[p + 1] - seed) <= tol) { mask[p + 1] = 1; stack[top++] = p + 1; }
+                if (y > 0 && !mask[p - w] && Math.abs(data[p - w] - seed) <= tol) { mask[p - w] = 1; stack[top++] = p - w; }
+                if (y < h - 1 && !mask[p + w] && Math.abs(data[p + w] - seed) <= tol) { mask[p + w] = 1; stack[top++] = p + w; }
+            }
+            const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+            const crop = new Uint8Array(bw * bh);
+            for (let y = 0; y < bh; y++) crop.set(mask.subarray((y0 + y) * w + x0, (y0 + y) * w + x0 + bw), y * bw);
+            const mean = sum / n;
+            return {
+                n, min: mn, max: mx, mean, std: Math.sqrt(Math.max(0, sum2 / n - mean * mean)),
+                seed_value: seed, tolerance: drag.tolerance, abs_tol: tol,
+                bbox: { x0, y0, x1, y1 }, _localMask: crop,
+            };
+        }
+        function _roiFloodFillLocalPreview(drag) {
+            const raw = _roiFillRawFor(drag.view);
+            if (!raw) return false;
+            const data = _roiLocalFloodFill(raw, drag);
+            if (!data) return false;
+            drag.local = data;
+            if (drag.seedValue === undefined) drag.seedValue = data.seed_value;
+            _redrawRoiOverlays(_floodFillPreviewRoi(data, { px: drag.px, py: drag.py, tolerance: drag.tolerance, replaceIdx: drag.editIdx, view: drag.view }));
+            _reconcileFloodfillSensitivityHud();
+            return true;
+        }
+
         function _requestFloodFillPreview(drag) {
             if (!drag) return;
+            _roiFloodFillLocalPreview(drag);
             if (drag.pending) {
                 drag.queued = true;
                 return;
@@ -28471,14 +28772,20 @@
             drag.queued = false;
             const token = ++drag.token;
             const tolerance = drag.tolerance;
-            showStatus(`flood fill preview: ${Math.round(tolerance * 100)}% sensitivity`);
             _fetchFloodFill(drag.px, drag.py, tolerance, { view: drag.view, scopeDim: drag.scopeDim })
                 .then(data => {
                     if (!_roiFloodFillDrag || _roiFloodFillDrag !== drag || token !== drag.token) return;
                     drag.data = data;
                     drag.dataTolerance = tolerance;
-                    _redrawRoiOverlays(_floodFillPreviewRoi(data, { px: drag.px, py: drag.py, tolerance, replaceIdx: drag.editIdx, view: drag.view }));
-                    showStatus(`flood fill preview: ${data.n} pixels · ${Math.round(tolerance * 100)}% sensitivity`);
+                    if (Number.isFinite(data.abs_tol) && tolerance > 0) drag.absRange = data.abs_tol / tolerance;
+                    if (Number.isFinite(data.seed_value)) drag.seedValue = data.seed_value;
+                    // Paint the server's region only while it is still the
+                    // sensitivity on screen; an older one would undo the
+                    // instant preview the user is already looking at.
+                    if (!drag.local || Math.abs(drag.tolerance - tolerance) < 0.0001) {
+                        _redrawRoiOverlays(_floodFillPreviewRoi(data, { px: drag.px, py: drag.py, tolerance, replaceIdx: drag.editIdx, view: drag.view }));
+                    }
+                    _reconcileFloodfillSensitivityHud();
                     if (drag.released && Math.abs(drag.tolerance - tolerance) < 0.0001) {
                         _roiFloodFillDrag = null;
                         _commitFloodFillData(data, { editIdx: drag.editIdx, px: drag.px, py: drag.py, tolerance, view: drag.view });
@@ -28497,6 +28804,16 @@
                 });
         }
 
+        // Fetch the plane under the cursor before the press, so the very first
+        // preview needs no round trip.
+        document.addEventListener('pointermove', e => {
+            if (!rectRoiMode || _roiShape !== 'floodfill' || _roiFloodFillDrag || !sid) return;
+            if (e.target === canvas && !multiViewActive && !qmriActive && !compareActive) { _roiFillRawFor(null); return; }
+            if (multiViewActive) {
+                const view = mvViews.find(v => v.canvas === e.target);
+                if (view) _roiFillRawFor(view);
+            }
+        }, { passive: true });
         function _roiFloodfillScopeControlsVisible() {
             return !!(rectRoiMode && _roiShape === 'floodfill' && Array.isArray(shape) && shape.length > 2 && !_histDimControlsVisible());
         }
@@ -28607,7 +28924,9 @@
             const onMove = me => {
                 if (_roiFloodFillDrag !== drag) return;
                 const next = _floodFillToleranceFromDrag(drag.baseTolerance, me.clientY - drag.startY);
-                if (Math.abs(next - drag.tolerance) < 0.005) return;
+                // Relative step: at a few percent an absolute 0.5 % step was
+                // a large jump in what joins.
+                if (Math.abs(Math.log(next / drag.tolerance)) < 0.01) return;
                 drag.tolerance = next;
                 _floodFillTolerance = next;
                 _updateRoiFloodfillSensitivityIndicator(drag.tolerance, true);
@@ -28864,11 +29183,19 @@
                         const bh = slice.bbox.y1 - slice.bbox.y0 + 1;
                         const maskBytes = slice.maskBytes;
                         if (doFill) {
+                            // One rect per run of set pixels, not per pixel:
+                            // a large fill is redrawn on every drag step.
+                            rctx.beginPath();
                             for (let y = 0; y < bh; y++) {
                                 for (let x = 0; x < bw; x++) {
-                                    if (maskBytes[y * bw + x]) rctx.fillRect((slice.bbox.x0 + x) * sx, (slice.bbox.y0 + y) * sy, Math.max(1, sx), Math.max(1, sy));
+                                    if (!maskBytes[y * bw + x]) continue;
+                                    let e = x + 1;
+                                    while (e < bw && maskBytes[y * bw + e]) e++;
+                                    rctx.rect((slice.bbox.x0 + x) * sx, (slice.bbox.y0 + y) * sy, Math.max(1, (e - x) * sx), Math.max(1, sy));
+                                    x = e;
                                 }
                             }
+                            rctx.fill();
                         }
                         if (doStroke) {
                             const oldFill = rctx.fillStyle;

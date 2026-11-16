@@ -324,6 +324,7 @@ def register_analysis_routes(app, get_session_or_404) -> None:
             "n": int(finite.size),
             "seed_value": _safe_float(seed_val),
             "tolerance": tolerance,
+            "abs_tol": _safe_float(abs_tol),
             "bbox": bbox,
             "mask_b64": _encode_mask_b64(component, bbox),
         }
@@ -692,6 +693,7 @@ def _scoped_floodfill_response(
         "n": int(finite.size),
         "seed_value": _safe_float(seed_val),
         "tolerance": tolerance,
+        "abs_tol": _safe_float(abs_tol),
         "bbox": current_slice["bbox"] if current_slice else {"x0": 0, "y0": 0, "x1": 0, "y1": 0},
         "mask_b64": current_slice["mask_b64"] if current_slice else "",
         "scope": roi["scope"],

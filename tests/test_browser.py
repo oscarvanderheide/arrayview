@@ -1885,7 +1885,7 @@ class TestROIDrag:
         page.wait_for_selector("#mv-panes", state="visible", timeout=5_000)
         page.wait_for_timeout(400)
         page.keyboard.press("Shift+R")
-        page.wait_for_selector("#roi-stats-hud .roi-hud-tool", timeout=2_000)
+        page.wait_for_selector("#roi-toolbar .roi-hud-tool", timeout=2_000)
         page.evaluate("() => _roiSetShape('circle')")
         page.wait_for_timeout(200)
 
@@ -1919,7 +1919,7 @@ class TestROIDrag:
         page = loaded_viewer(sid)
         _focus_kb(page)
         page.keyboard.press("Shift+R")
-        page.wait_for_selector("#roi-stats-hud .roi-hud-tool", timeout=3_000)
+        page.wait_for_selector("#roi-toolbar .roi-hud-tool", timeout=3_000)
         page.evaluate("_roiSetShape('rect')"); page.wait_for_timeout(150)
         cv = page.locator("canvas#viewer")
         box = cv.bounding_box()
@@ -1947,6 +1947,53 @@ class TestROIDrag:
         stats_flip = page.evaluate("() => _rois[0] && _rois[0].stats")
         assert stats_flip is not None, "ROI stats should be fetched after flip"
         assert abs(stats_flip["mean"] - 20.0) < 0.1, f"flipped mean should be ~20, got {stats_flip['mean']}"
+
+    def test_roi_outline_follows_pinch_zoom(self, loaded_viewer, sid_3d):
+        # The outline canvas must resize with every zoom step, not only on
+        # the next render.
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#roi-toolbar .roi-hud-tool", timeout=3_000)
+        self._draw_roi(page)
+        box = page.locator("canvas#viewer").bounding_box()
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        for _ in range(6):
+            page.keyboard.down("Control"); page.mouse.wheel(0, -8); page.keyboard.up("Control")
+            page.wait_for_timeout(30)
+        sizes = page.evaluate("""() => {
+            const a = document.getElementById('viewer').getBoundingClientRect();
+            const b = document.getElementById('roi-overlay').getBoundingClientRect();
+            return [userZoom, a.width, b.width, a.left, b.left];
+        }""")
+        assert sizes[0] > 1.05, f"pinch should zoom in, got {sizes}"
+        assert abs(sizes[1] - sizes[2]) < 1 and abs(sizes[3] - sizes[4]) < 1, sizes
+
+    def test_roi_toolbar_then_numbers_beside_panes(self, loaded_viewer, sid_3d):
+        # Shape buttons first, left of the image; the numbers only once an
+        # ROI exists, right of it. Neither covers the image when there is room.
+        page = loaded_viewer(sid_3d)
+        page.set_viewport_size({"width": 1400, "height": 900})
+        page.wait_for_timeout(300)
+        _focus_kb(page)
+        page.keyboard.press("Shift+R")
+        page.wait_for_selector("#roi-toolbar.visible", timeout=3_000)
+        assert not page.locator("#roi-stats-hud").is_visible()
+        self._draw_roi(page)
+        page.wait_for_selector("#roi-stats-hud.visible", timeout=3_000)
+        rects = page.evaluate("""() => {
+            const r = id => document.getElementById(id).getBoundingClientRect();
+            const img = document.getElementById('canvas-viewport').getBoundingClientRect();
+            return { bar: r('roi-toolbar'), hud: r('roi-stats-hud'), img,
+                     form: document.getElementById('roi-stats-hud').dataset.form };
+        }""")
+        assert rects["bar"]["right"] <= rects["img"]["left"], rects
+        assert rects["hud"]["left"] >= rects["img"]["right"], rects
+        assert rects["form"] == "full", rects
+        page.keyboard.press("Shift+R")
+        page.wait_for_timeout(300)
+        assert not page.locator("#roi-toolbar").is_visible()
+        assert not page.locator("#roi-stats-hud").is_visible()
 
 
 class TestNormalInspectInteractions:
