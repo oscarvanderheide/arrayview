@@ -253,6 +253,7 @@ def register_analysis_routes(app, get_session_or_404) -> None:
         tolerance: float = 0.1,
         complex_mode: int = 0,
         scope_dim: int | None = None,
+        preview: bool = False,
         session=Depends(get_session_or_404),
     ):
         if session.rgb_axis is not None:
@@ -269,6 +270,7 @@ def register_analysis_routes(app, get_session_or_404) -> None:
                 tolerance,
                 complex_mode,
                 scope_dim,
+                preview=preview,
             )
         raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
         data = apply_complex_mode(raw, complex_mode)
@@ -603,6 +605,7 @@ def _scoped_floodfill_response(
     tolerance: float,
     complex_mode: int,
     scope_dim: int,
+    preview: bool = False,
 ) -> dict:
     shape = session.shape
     if len(indices) < len(shape):
@@ -639,6 +642,30 @@ def _scoped_floodfill_response(
     component = _connected_component(mask, (seed_z, py, px))
     roi_values = volume[component]
     finite = roi_values[np.isfinite(roi_values)]
+
+    if preview:
+        # While the sensitivity is being dragged: stats of the whole grown
+        # region, but the mask of the shown plane only. The full 3D mask is
+        # megabytes per step and only needed once, on release.
+        plane = component[seed_z]
+        ys, xs = np.where(plane)
+        bbox = (
+            {"x0": int(xs.min()), "y0": int(ys.min()), "x1": int(xs.max()), "y1": int(ys.max())}
+            if len(xs) else {"x0": 0, "y0": 0, "x1": 0, "y1": 0}
+        )
+        return {
+            "min": _safe_float(finite.min()) if finite.size else None,
+            "max": _safe_float(finite.max()) if finite.size else None,
+            "mean": _safe_float(finite.mean()) if finite.size else None,
+            "std": _safe_float(finite.std()) if finite.size else None,
+            "n": int(finite.size),
+            "seed_value": _safe_float(seed_val),
+            "tolerance": tolerance,
+            "abs_tol": _safe_float(abs_tol),
+            "bbox": bbox,
+            "mask_b64": _encode_mask_b64(plane, bbox),
+            "preview": True,
+        }
 
     slices = []
     scoped_values = []

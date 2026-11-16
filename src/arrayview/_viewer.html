@@ -1330,7 +1330,7 @@
             z-index: 35;
             display: none;
             box-sizing: border-box;
-            width: min(240px, calc(100vw - 20px));
+            width: max-content; max-width: min(280px, calc(100vw - 20px));
             max-height: min(400px, 55vh);
             overflow: hidden;
             padding: 4px;
@@ -20771,7 +20771,8 @@
             const hw = bar.offsetWidth, hh = bar.offsetHeight;
             const below = Math.max(U.bottom, ...L.chrome.filter(r => r.top >= U.bottom - 1).map(r => r.bottom));
             const tries = [
-                { horiz: false, x: U.left - g - vw, y: U.top },
+                // Level with the middle of the panes.
+                { horiz: false, x: U.left - g - vw, y: Math.max(g, (U.top + U.bottom - vh) / 2) },
                 { horiz: true, x: U.left, y: U.bottom + g },
                 { horiz: true, x: g, y: U.bottom + g },
                 { horiz: true, x: U.left, y: below + g },
@@ -20787,6 +20788,20 @@
 
         function _placeRoiStats(hud, L) {
             const g = _ROI_GAP, U = L.union;
+            // Opening / folding glides from the old box to the new one; any
+            // glide still running is ended first so the sizes below are real.
+            const wasOpen = hud.classList.contains('peek');
+            const wantOpen = _roiHudPeek || performance.now() < _roiHudFlashUntil
+                || _roiHudRenaming >= 0 || hud.matches(':focus-within');
+            const gliding = hud.getAnimations().filter(a => a.id === 'roi-hud-fold' && a.playState === 'running');
+            // Hovering a row redraws the panel; let a running glide finish
+            // when nothing it is heading for has changed.
+            if (gliding.length && hud._placedSig === L.sig && hud._placedContent === hud._content
+                && wantOpen === wasOpen) return;
+            const was = hud._placedOnce ? hud.getBoundingClientRect() : null;
+            gliding.forEach(a => a.cancel());
+            hud._placedSig = L.sig;
+            hud._placedContent = hud._content;
             const top = Math.max(g, Math.round(U.top));
             hud.style.maxHeight = `${Math.max(80, Math.min(400, innerHeight - top - g))}px`;
             const size = form => { hud.dataset.form = form; return { w: hud.offsetWidth, h: hud.offsetHeight }; };
@@ -20814,6 +20829,14 @@
             hud.classList.toggle('peek', open);
             hud.style.left = `${Math.round(x)}px`;
             hud.style.top = `${top}px`;
+            hud._placedOnce = true;
+            if (was && open !== wasOpen && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                const now = hud.getBoundingClientRect();
+                const box = r => ({ left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+                const ease = { duration: 200, easing: 'cubic-bezier(.2, .7, .2, 1)' };
+                hud.animate([box(was), box(now)], { ...ease, id: 'roi-hud-fold' });
+                [...hud.children].forEach(c => c.animate([{ opacity: 0 }, { opacity: 1 }], { ...ease, duration: 240 }));
+            }
         }
 
         function _placeRoiHud() {
@@ -20904,6 +20927,7 @@
             hud.classList.toggle('visible', !!visible);
             hud.setAttribute('aria-hidden', String(!visible));
             if (!visible) {
+                hud._placedOnce = false;
                 _roiHudHoverIdx = -1;
                 _roiHudPeek = false;
                 _roiHudGeomSig = '';
@@ -28538,6 +28562,7 @@
                 complex_mode: String(complexMode),
             });
             if (Number.isInteger(opts.scopeDim) && opts.scopeDim >= 0) params.set('scope_dim', String(opts.scopeDim));
+            if (opts.preview) params.set('preview', 'true');
             const resp = await proxyFetch(`/roi_floodfill/${sid}?${params}`);
             if (!resp.ok) throw new Error('request failed');
             const data = await resp.json();
@@ -28749,7 +28774,13 @@
                 bbox: { x0, y0, x1, y1 }, _localMask: crop,
             };
         }
+        function _roiFloodFillIs3d(drag) {
+            return Number.isInteger(drag.scopeDim) && drag.scopeDim >= 0;
+        }
         function _roiFloodFillLocalPreview(drag) {
+            // A 3D grow reaches round through neighbouring slices; filling
+            // the shown plane alone would show too small a region.
+            if (_roiFloodFillIs3d(drag)) return false;
             const raw = _roiFillRawFor(drag.view);
             if (!raw) return false;
             const data = _roiLocalFloodFill(raw, drag);
@@ -28772,10 +28803,14 @@
             drag.queued = false;
             const token = ++drag.token;
             const tolerance = drag.tolerance;
-            _fetchFloodFill(drag.px, drag.py, tolerance, { view: drag.view, scopeDim: drag.scopeDim })
+            // A 3D grow sends only the shown plane while dragging; the full
+            // region (megabytes) is fetched once, on release.
+            const lite = _roiFloodFillIs3d(drag) && !drag.released;
+            _fetchFloodFill(drag.px, drag.py, tolerance, { view: drag.view, scopeDim: drag.scopeDim, preview: lite })
                 .then(data => {
                     if (!_roiFloodFillDrag || _roiFloodFillDrag !== drag || token !== drag.token) return;
                     drag.data = data;
+                    drag.dataLite = !!data.preview;
                     drag.dataTolerance = tolerance;
                     if (Number.isFinite(data.abs_tol) && tolerance > 0) drag.absRange = data.abs_tol / tolerance;
                     if (Number.isFinite(data.seed_value)) drag.seedValue = data.seed_value;
@@ -28786,7 +28821,7 @@
                         _redrawRoiOverlays(_floodFillPreviewRoi(data, { px: drag.px, py: drag.py, tolerance, replaceIdx: drag.editIdx, view: drag.view }));
                     }
                     _reconcileFloodfillSensitivityHud();
-                    if (drag.released && Math.abs(drag.tolerance - tolerance) < 0.0001) {
+                    if (drag.released && !drag.dataLite && Math.abs(drag.tolerance - tolerance) < 0.0001) {
                         _roiFloodFillDrag = null;
                         _commitFloodFillData(data, { editIdx: drag.editIdx, px: drag.px, py: drag.py, tolerance, view: drag.view });
                     }
@@ -28798,7 +28833,7 @@
                 .finally(() => {
                     if (!drag) return;
                     drag.pending = false;
-                    if (_roiFloodFillDrag === drag && (drag.queued || (drag.released && Math.abs((drag.dataTolerance ?? -1) - drag.tolerance) >= 0.0001))) {
+                    if (_roiFloodFillDrag === drag && (drag.queued || (drag.released && (drag.dataLite || Math.abs((drag.dataTolerance ?? -1) - drag.tolerance) >= 0.0001)))) {
                         _requestFloodFillPreview(drag);
                     }
                 });
@@ -28938,7 +28973,7 @@
                 if (_roiFloodFillDrag !== drag) return;
                 drag.released = true;
                 _updateRoiFloodfillSensitivityIndicator(drag.tolerance, false);
-                if (drag.data && Math.abs((drag.dataTolerance ?? -1) - drag.tolerance) < 0.0001) {
+                if (drag.data && !drag.dataLite && Math.abs((drag.dataTolerance ?? -1) - drag.tolerance) < 0.0001) {
                     _roiFloodFillDrag = null;
                     _commitFloodFillData(drag.data, { editIdx: drag.editIdx, px: drag.px, py: drag.py, tolerance: drag.tolerance, view: drag.view });
                 } else {
@@ -29586,8 +29621,15 @@
             if (realPreview) {
                 const colorIdx = replaceIdx >= 0 ? replaceIdx : _rois.length;
                 const c = _roiColors[colorIdx % _roiColors.length];
+                // A flood-fill preview is in data space like a committed one:
+                // flip it to the screen the same way, or it shows mirrored.
+                const ffDs = realPreview.type === 'floodfill';
+                roiOverlayCtx.save();
+                if (ffDs && flip_x) { roiOverlayCtx.translate(dW, 0); roiOverlayCtx.scale(-1, 1); }
+                if (ffDs && flip_y) { roiOverlayCtx.translate(0, dH); roiOverlayCtx.scale(1, -1); }
                 _roiDrawVisibleShape(roiOverlayCtx, realPreview, sx, sy, c, replaceIdx === _selectedRoiIdx);
                 if (replaceIdx === _selectedRoiIdx) _roiDrawHandles(roiOverlayCtx, realPreview, sx, sy);
+                roiOverlayCtx.restore();
             }
             // Still-dragging quick-measure outline (no stats/pill yet).
             if (infoPreview) {
@@ -29699,7 +29741,12 @@
                     }
                     const colorIdx = replaceIdx >= 0 ? replaceIdx : _rois.length;
                     const c = _roiColors[colorIdx % _roiColors.length];
+                    const ffDs = previewForView.type === 'floodfill';
+                    rctx.save();
+                    if (ffDs && vfx) { rctx.translate(dW, 0); rctx.scale(-1, 1); }
+                    if (ffDs && vfy) { rctx.translate(0, dH); rctx.scale(1, -1); }
                     _roiDrawVisibleShape(rctx, previewForView, sx, sy, c, replaceIdx === _selectedRoiIdx);
+                    rctx.restore();
                     previewForView._paneSlice = null;
                 }
                 // Still-dragging quick-measure outline for this pane (no pill yet).
