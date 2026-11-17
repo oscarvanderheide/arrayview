@@ -388,38 +388,6 @@
             backface-visibility: hidden;
             -webkit-backface-visibility: hidden;
         }
-        /* Flood-fill gauge, shown while the seed is held: wedge (up = more
-           values join), the value range and pixel count beside it, and where
-           the fill grows underneath. Fixed width so drag steps never resize it. */
-        #roi-fill-gauge {
-            position: fixed; z-index: 100; display: none; pointer-events: none;
-            box-sizing: border-box; width: 168px; padding: 9px 10px 8px;
-            flex-direction: column; gap: 8px;
-            border-radius: var(--radius-lg);
-            background: color-mix(in srgb, var(--surface) 88%, transparent);
-            backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
-            border: 1px solid var(--border);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-            color: var(--text); font: 10px 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
-            font-variant-numeric: tabular-nums;
-        }
-        #roi-fill-gauge.visible { display: flex; }
-        html.roi-fill-adjusting, html.roi-fill-adjusting * { cursor: none !important; }
-        #roi-fill-gauge .fill-body { display: flex; gap: 10px; height: 104px; }
-        #roi-fill-gauge .fill-wedge { width: 14px; height: 104px; flex: none; overflow: visible; }
-        #roi-fill-gauge .fill-scale { fill: var(--active-dim); fill-opacity: .16; stroke: color-mix(in srgb, var(--active-dim) 45%, var(--muted)); stroke-width: 1; vector-effect: non-scaling-stroke; }
-        #roi-fill-gauge .fill-marker { stroke: var(--active-dim); stroke-width: 2; stroke-linecap: round; vector-effect: non-scaling-stroke; }
-        #roi-fill-gauge .fill-text { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; }
-        #roi-fill-gauge .fill-end { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 9.5px; letter-spacing: 0.04em; }
-        #roi-fill-gauge .fill-chev { width: 8px; height: 5px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
-        #roi-fill-gauge .fill-now { display: flex; flex-direction: column; gap: 3px; }
-        #roi-fill-gauge .fill-range { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        #roi-fill-gauge .fill-count { color: color-mix(in srgb, var(--text) 60%, var(--muted)); white-space: nowrap; }
-        #roi-fill-gauge .fill-scope { display: flex; align-items: baseline; gap: 6px; padding-top: 7px; border-top: 1px solid var(--border-subtle); color: color-mix(in srgb, var(--text) 55%, var(--muted)); font-size: 9.5px; line-height: 12px; }
-        #roi-fill-gauge .fill-scope-tag {
-            flex: none; padding: 1px 4px; border-radius: 4px;
-            background: var(--surface-2); color: var(--text); font-size: 9px; letter-spacing: 0.04em;
-        }
         /* Shared dynamic island glassmorphism for all colorbar containers */
         .cb-island {
             --cb-extra-top: 0px;
@@ -1384,21 +1352,22 @@
         /* Alt-hold menu: one row of buttons just above the pointer. */
         #roi-toolbar {
             display: none; padding: 4px;
-            width: 212px; max-width: calc(100vw - 20px); max-height: none;
+            width: max-content; max-width: calc(100vw - 20px); max-height: none; overflow: visible;
             flex-direction: column; align-items: stretch;
             box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
         }
         #roi-toolbar.visible { display: flex; }
         #roi-toolbar .roi-menu-row { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 2px 0 4px; }
         /* Caption: fixed height so the menu never changes size as it follows the pointer. */
-        #roi-toolbar .roi-menu-cap { padding: 6px 8px 7px; border-top: 1px solid var(--border-subtle); }
-        #roi-toolbar .roi-menu-cap-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; height: 15px; }
-        #roi-toolbar .roi-menu-cap-name { color: var(--text); font-size: 11px; }
-        #roi-toolbar .roi-menu-cap-state { color: var(--active-dim); font-size: 9.5px; letter-spacing: 0.03em; }
-        #roi-toolbar .roi-menu-cap-how { height: 26px; margin-top: 2px; color: color-mix(in srgb, var(--text) 55%, var(--muted)); font-size: 10px; line-height: 13px; overflow: hidden; }
-        #roi-toolbar .roi-menu-cap.off .roi-menu-cap-name { color: var(--muted); }
+        #roi-toolbar .roi-menu-cap {
+            display: none; position: absolute; right: 0; bottom: calc(100% + 6px);
+            width: 190px; padding: 6px 8px; pointer-events: none;
+            background: var(--surface); border: 1px solid var(--border-subtle); border-radius: 8px;
+            color: var(--text); font-size: 10px; line-height: 13px;
+        }
+        #roi-toolbar .roi-menu-cap.show { display: block; }
         #roi-toolbar button.roi-menu-pref {
-            display: block; width: 100%; height: auto; padding: 6px 8px; margin: 0;
+            display: block; width: 0; min-width: 100%; height: auto; padding: 6px 8px; margin: 0;
             border-top: 1px solid var(--border-subtle); border-radius: 0 0 10px 10px;
             text-align: left; font-size: 9.5px; line-height: 13px; color: var(--muted); white-space: normal;
         }
@@ -7074,6 +7043,7 @@
         let _segDrawStart = null; // start point for current segmentation drawing
         let _segDrawPoints = []; // points for scribble/lasso
         let _rulerMode = false;
+        let _roiSessionShape = null; // last shape picked this session; beats the preference until it changes
         let _roiShape = 'circle'; // 'circle' | 'rect' | 'freehand' | 'floodfill'
         let _roiFreehandPts = []; // points for current freehand drawing
         let _rois = []; // array of {type,x0,y0,x1,y1,cx,cy,r,points,stats,qmriStats} for multi-ROI
@@ -13379,8 +13349,18 @@
                 }
             }
 
+            // Values a flood fill would take ({lo, hi}) or null: drawn as a
+            // bright band with the rest dimmed.
+            setFillBand(band) {
+                const same = (!band && !this._fillBand)
+                    || (band && this._fillBand && band.lo === this._fillBand.lo && band.hi === this._fillBand.hi);
+                this._fillBand = band || null;
+                if (!same) this.draw();
+            }
+
             constructor(opts) {
                 this.opts = opts;
+                this._fillBand = null;
                 ColorBar._live.add(this);
                 this.orientation = opts.orientation || 'horizontal';
                 this.interactive = opts.interactive !== false;
@@ -13713,6 +13693,80 @@
             }
 
             /** Vertical colorbar renderer for mosaic mode. */
+            /** Flood-fill range: dim everything outside it, edge lines and the two end values. */
+            _drawFillBand(ctx, cssW, cssH, effVmin, effW, colHAt, aT) {
+                const band = this._fillBand;
+                if (!band) return;
+                const win = this.opts.getWindow();
+                const span = win.vmax - win.vmin;
+                if (!(span > 0)) return;
+                const xOf = v => (effVmin + effW * (v - win.vmin) / span) * cssW;
+                const rawA = xOf(band.lo), rawB = xOf(band.hi);
+                const xa = Math.max(0, Math.min(cssW, rawA));
+                const xb = Math.max(0, Math.min(cssW, rawB));
+                const contour = aT > 0 ? _cbContourPath(cssW, cssH, (s) => colHAt(s / cssW), false, 0) : null;
+                ctx.save();
+                if (contour) ctx.clip(contour);
+                ctx.fillStyle = isDark ? 'rgba(0,0,0,0.62)' : 'rgba(255,255,255,0.68)';
+                ctx.fillRect(0, 0, xa, cssH);
+                ctx.fillRect(xb, 0, cssW - xb, cssH);
+                ctx.restore();
+                // Edge lines: white with a thin black outline, so they read on any colour.
+                const edge = (x) => {
+                    const px = Math.round(x) + 0.5;
+                    ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, cssH);
+                    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.stroke();
+                    ctx.lineWidth = 1; ctx.strokeStyle = '#fff'; ctx.stroke();
+                };
+                // An edge beyond the colour range: a small arrow at the bar end
+                // pointing out, instead of a line.
+                const arrow = (atRight) => {
+                    const x = atRight ? cssW - 4.5 : 4.5, d = atRight ? 1 : -1, cy = cssH / 2;
+                    ctx.beginPath();
+                    ctx.moveTo(x + d * 3, cy); ctx.lineTo(x - d * 2, cy - 4.5); ctx.lineTo(x - d * 2, cy + 4.5); ctx.closePath();
+                    ctx.lineJoin = 'round'; ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.stroke();
+                    ctx.fillStyle = '#fff'; ctx.fill();
+                };
+                ctx.save();
+                const loOut = rawA < 0, hiOut = rawB > cssW;
+                const below = rawB < 0, above = rawA > cssW;
+                if (below) arrow(false);
+                else if (above) arrow(true);
+                else {
+                    if (loOut) arrow(false); else edge(xa);
+                    if (hiOut) arrow(true); else edge(xb);
+                }
+                // The two end values, on the dimmed side of each edge when there is room.
+                const fmt = formatValueGroup([band.lo, band.hi]);
+                const lo = _signPad(_cbFmtPlain(band.lo, [band.hi], fmt));
+                const hi = _signPad(_cbFmtPlain(band.hi, [band.lo], fmt));
+                ctx.font = '10px monospace';
+                ctx.textBaseline = 'middle';
+                ctx.lineJoin = 'round';
+                ctx.lineWidth = 2.5;
+                const y = cssH / 2 + 0.5;
+                const put = (text, x, align) => {
+                    ctx.textAlign = align;
+                    ctx.strokeStyle = '#000';
+                    ctx.strokeText(text, x, y);
+                    ctx.fillStyle = '#fff';
+                    ctx.fillText(text, x, y);
+                };
+                const gap = 5, arrowW = 12;
+                if (below || above) {
+                    // Whole range lies off the colour scale: one label by the arrow.
+                    const text = `${lo.trim()} \u2013 ${hi.trim()}`;
+                    if (below) put(text, arrowW + gap, 'left'); else put(text, cssW - arrowW - gap, 'right');
+                } else {
+                    const wLo = ctx.measureText(lo).width, wHi = ctx.measureText(hi).width;
+                    if (loOut) put(lo, arrowW + gap, 'left');
+                    else if (xa - gap - wLo >= 2) put(lo, xa - gap, 'right'); else put(lo, xa + gap, 'left');
+                    if (hiOut) put(hi, cssW - arrowW - gap, 'right');
+                    else if (xb + gap + wHi <= cssW - 2) put(hi, xb + gap, 'left'); else put(hi, xb - gap, 'right');
+                }
+                ctx.restore();
+            }
+
             _drawVertical() {
                 const cvs = this.canvas;
                 if (!cvs) return;
@@ -14136,6 +14190,7 @@
                     ? _cbContourPath(cssW, cssH, (s) => colHAt(s / cssW), false, 0.5)
                     : null);
 
+                this._drawFillBand(ctx, cssW, cssH, effVmin, effW, colHAt, aT);
                 this._drawTicks(ctx, cssW, cssH, aT);
 
                 // Value labels in the label zone
@@ -20351,6 +20406,7 @@
                 return;
             }
             _roiShape = shape;
+            _roiSessionShape = shape;
             const modeHint = shape === 'floodfill' ? 'hold seed · drag up/down sensitivity · release to create' : 'drag to draw';
             if (rectRoiMode) showStatus(`ROI mode: ${shape} · ${modeHint}`);
             if (shape !== 'floodfill') _updateRoiFloodfillSensitivityIndicator(_floodFillTolerance, false);
@@ -20612,7 +20668,7 @@
                 _islandMorph();
             }
             rectRoiMode = true;
-            _roiShape = _roiDefaultShape;  // preference viewer.roi_shape
+            _roiShape = _roiSessionShape || _roiDefaultShape;  // last pick this session, else preference viewer.roi_shape
             if (compareActive && _roiShape === 'floodfill') _roiShape = 'circle';
             _roiVisible = true;
             _clearInfoQuickRoi(); // switching to the real ROI tool drops the quick-measure outline
@@ -20926,14 +20982,10 @@
         function _roiMenuCaption(bar, shape) {
             const cap = bar.querySelector('.roi-menu-cap');
             if (!cap) return;
-            const s = shape || _roiShape;
-            const btn = bar.querySelector(`[data-shape="${s}"]`);
-            const [name, how] = _ROI_MENU_CAPTIONS[s] || [s, ''];
-            const off = btn && btn.disabled;
-            cap.querySelector('.roi-menu-cap-name').textContent = name;
-            cap.querySelector('.roi-menu-cap-state').textContent = off ? '' : s === _roiShape ? 'drawing now' : '';
-            cap.querySelector('.roi-menu-cap-how').textContent = off ? (btn.title.split(' · ')[1] || 'not available here') : how;
-            cap.classList.toggle('off', !!off);
+            // Only flood fill needs an explanation.
+            const btn = shape === 'floodfill' ? bar.querySelector('[data-shape="floodfill"]') : null;
+            if (btn) cap.textContent = btn.disabled ? (btn.title.split(' · ')[1] || 'not available here') : _ROI_MENU_CAPTIONS.floodfill[1];
+            cap.classList.toggle('show', !!btn);
         }
 
         // Numbers panel: keep the width it has reached, then keep it on screen
@@ -21011,12 +21063,9 @@
                 const on = shapeName === _roiShape && !off;
                 html += `<button type="button" class="roi-hud-tool${on ? ' on' : ''}" data-shape="${shapeName}" aria-label="${_roiShapeLabel(shapeName)}" aria-pressed="${on}" title="${tip}"${off ? ' disabled' : ''}>${_ROI_SHAPE_ICONS[shapeName]}</button>`;
             }
-            const defName = (_ROI_MENU_CAPTIONS[_roiDefaultShape] || ['circle'])[0].toLowerCase();
             html = `<div class="roi-menu-row">${html}</div>`
-                + '<div class="roi-menu-cap" aria-live="polite">'
-                + '<div class="roi-menu-cap-top"><span class="roi-menu-cap-name"></span><span class="roi-menu-cap-state"></span></div>'
-                + '<div class="roi-menu-cap-how"></div></div>'
-                + `<button type="button" class="roi-menu-pref" data-action="preferences" title="Open Preferences">i starts with <b>${defName}</b> · change in Preferences</button>`;
+                + '<div class="roi-menu-cap" aria-live="polite"></div>'
+                + '<button type="button" class="roi-menu-pref" data-action="preferences" title="Open Preferences">Change default in preferences</button>';
             if (bar._content !== html) {
                 bar._content = html;
                 bar.innerHTML = html;
@@ -25369,11 +25418,6 @@
                 _setLoupeValuePill(payload, null);
                 return;
             }
-            if (rectRoiMode && _roiSuppressPixelInfo) {
-                el.style.display = 'none';
-                delete el.dataset.pixelInfoKey;
-                return;
-            }
             const key = (payload && typeof payload === 'object')
                 ? `${payload.valueText ?? ''}|${payload.rawX ?? ''}|${payload.rawY ?? ''}`
                 : String(payload ?? '');
@@ -25605,17 +25649,6 @@
             return { text, stableCh };
         }
         function fetchPixelInfo(opts) {
-            if (rectRoiMode) {
-                const roiIdx = _roiHitIndexForCanvasEvent(opts.event, opts.canvas, opts.imgW, opts.imgH);
-                _roiSuppressPixelInfo = _roiHasStats(roiIdx);
-                if (_roiSuppressPixelInfo) {
-                    if (opts.displayEl) {
-                        opts.displayEl.style.display = 'none';
-                        delete opts.displayEl.dataset.pixelInfoKey;
-                    }
-                    return false;
-                }
-            }
             const indices = Array.isArray(opts.indices) ? opts.indices : [];
             if (!indices.length || indices.some(v => !Number.isFinite(v))) return false;
             const rect = opts.canvas.getBoundingClientRect();
@@ -27485,6 +27518,7 @@
                 _qmriStartMode = value === 'straight' ? 'straight' : 'picker';
             } else if (key === 'roi_shape') {
                 _roiDefaultShape = ['circle', 'rect', 'freehand', 'floodfill'].includes(value) ? value : 'circle';
+                _roiSessionShape = null;
             } else if (key === 'qmri_maps') {
                 _qmriStartNames = Array.isArray(value) && value.length ? value.map(v => String(v).toLowerCase()) : ['t1', 't2', 'pd'];
             }
@@ -28685,68 +28719,39 @@
         }
 
         let _roiFillGaugeActive = false;
+        let _roiFillBandOn = false;
+        let _roiFillOpenedHist = false;
+        // While the seed is held, the colorbar shows which values join: a
+        // bright band around the clicked value, the rest dimmed.
         function _reconcileFloodfillSensitivityHud() {
-            let hud = document.getElementById('roi-fill-gauge');
             const drag = _roiFloodFillDrag;
             const active = _roiFillGaugeActive && rectRoiMode && _roiShape === 'floodfill' && drag && !drag.released;
-            document.documentElement.classList.toggle('roi-fill-adjusting', !!active);
-            if (!hud && !active) return;
-            if (!hud) {
-                hud = document.createElement('div');
-                hud.id = 'roi-fill-gauge';
-                hud.setAttribute('role', 'img');
-                // The wedge says where on the range you are; the words say
-                // what that means: which values join, and how many pixels.
-                // Fixed width: the numbers change on every drag step and the
-                // card must not breathe with them.
-                const chev = d => `<svg class="fill-chev" viewBox="0 0 8 5" aria-hidden="true"><path d="${d}"/></svg>`;
-                hud.innerHTML = `<div class="fill-body">
-                    <svg class="fill-wedge" viewBox="0 0 22 104" preserveAspectRatio="none" aria-hidden="true">
-                        <path class="fill-scale" d="M1 1 H21 L11 103 Z"/>
-                        <path class="fill-cursor fill-marker" d="M-2 0 H24"/>
-                    </svg>
-                    <div class="fill-text">
-                        <span class="fill-end">${chev('M1 4 L4 1 L7 4')}more</span>
-                        <span class="fill-now"><span class="fill-range"></span><span class="fill-count"></span></span>
-                        <span class="fill-end">${chev('M1 1 L4 4 L7 1')}less</span>
-                    </div>
-                </div>
-                <div class="fill-scope"><span class="fill-scope-tag"></span><span class="fill-scope-text"></span></div>`;
-                document.body.appendChild(hud);
+            const wasActive = !!_roiFillBandOn;
+            _roiFillBandOn = !!active;
+            if (!active) {
+                if (wasActive) {
+                    primaryCb.setFillBand(null);
+                    if (_roiFillOpenedHist) {
+                        _roiFillOpenedHist = false;
+                        if (!primaryCb._manualExpand) primaryCb.collapse();
+                    }
+                }
+                return;
             }
-            const wasVisible = hud.classList.contains('visible');
-            hud.classList.toggle('visible', !!active);
-            hud.setAttribute('aria-hidden', String(!active));
-            if (!active) return;
-            const value = Math.max(.01, Math.min(1, drag.tolerance));
-            const fraction = Math.log(value / .01) / Math.log(100);
-            hud.querySelector('.fill-cursor').setAttribute('transform', `translate(0 ${103 - fraction * 102})`);
-            // Values that join: the clicked value give or take the tolerance.
+            // Show the whole value range (the histogram) while holding, so a
+            // seed outside the colour window still has its band on screen.
+            if (!wasActive && !rgbMode && !primaryCb.expanded) {
+                _roiFillOpenedHist = true;
+                primaryCb.expand();
+            }
             const raw = _roiFillRaw && _roiFillRaw.key === _roiFillRawKey(drag.view) ? _roiFillRaw : null;
             const absRange = Number.isFinite(drag.absRange) ? drag.absRange : raw && raw.data ? raw.absRange : NaN;
             const seed = drag.seedValue;
-            const range = Number.isFinite(seed) && Number.isFinite(absRange)
-                ? `${_roiStatsFmt(seed - drag.tolerance * absRange)} \u2013 ${_roiStatsFmt(seed + drag.tolerance * absRange)}`
-                : '\u2026';
-            // Pixel count for the sensitivity on screen. A 3D grow is only
-            // known once the server has answered for it.
-            const same = t => Number.isFinite(t) && Math.abs(t - drag.tolerance) < 0.0001;
             const is3d = Number.isInteger(drag.scopeDim) && drag.scopeDim >= 0;
-            const n = drag.data && same(drag.dataTolerance) ? drag.data.n
-                : !is3d && drag.local && same(drag.local.tolerance) ? drag.local.n : null;
-            const count = n == null ? '\u2026' : `${Number(n).toLocaleString('en-US')} ${is3d ? 'voxels' : n === 1 ? 'pixel' : 'pixels'}`;
-            hud.querySelector('.fill-range').textContent = range;
-            hud.querySelector('.fill-count').textContent = count;
-            // Where it grows: this slice, or on through the slices of the dim
-            // underlined in the dim bar (pulsed there as the hold starts).
-            hud.querySelector('.fill-scope-tag').textContent = is3d ? '3D' : '2D';
-            hud.querySelector('.fill-scope-text').textContent = is3d ? 'through the dims underlined in the dim bar' : 'this slice only';
-            if (!wasVisible && is3d) _pulseFloodfillScopeDims(drag);
-            hud.setAttribute('aria-label', `Flood fill takes values ${range}, ${count}. Drag up to take more, down to take less.`);
-            const width = hud.offsetWidth, height = hud.offsetHeight;
-            const x = drag.clientX + 20 + width <= window.innerWidth - 8 ? drag.clientX + 20 : drag.clientX - width - 20;
-            hud.style.left = `${Math.max(8, Math.min(window.innerWidth - width - 8, x))}px`;
-            hud.style.top = `${Math.max(8, Math.min(window.innerHeight - height - 8, drag.clientY - height / 2))}px`;
+            if (!wasActive && is3d) _pulseFloodfillScopeDims(drag);
+            primaryCb.setFillBand(Number.isFinite(seed) && Number.isFinite(absRange)
+                ? { lo: seed - drag.tolerance * absRange, hi: seed + drag.tolerance * absRange }
+                : null);
         }
         function _pulseFloodfillScopeDims(drag) {
             const info = document.getElementById('info');
@@ -30471,12 +30476,6 @@
                     _roiFetchStructuredStats(roiIdx);
                 }
             }
-        });
-        // Measurements live in the HUD; keep cursor pixel values suppressed on ROIs.
-        canvas.addEventListener('mousemove', e => {
-            if (!rectRoiMode || roiDragging || _roiTooltipEdit) return;
-            _roiSuppressPixelInfo = _roiHasStats(_roiHitIndexForCanvasEvent(e, canvas, canvas.width, canvas.height));
-            if (_roiSuppressPixelInfo) hideAllPixelInfo();
         });
         // ROI right-click: delete the ROI under the cursor
         canvas.addEventListener('contextmenu', e => {
@@ -33635,7 +33634,7 @@
                             { key: 'i', action: 'Show / hide ROI mode', hint: 'or double-click a pane · also shows the value under the cursor · hiding keeps your regions and their numbers' },
                             { key: '/', action: 'Open tool launcher', hint: 'pick another tool without using the help overlay' },
                             { key: 'Drag', action: 'Draw a region' },
-                            { key: 'Shape button', action: 'Change shape', hint: 'bottom right, left of the logo · shows the shape you are drawing · circle, rectangle, freehand, flood fill · the shape i starts with is set in Preferences' },
+                            { key: 'Shape button', action: 'Change shape', hint: 'bottom right, left of the logo · shows the shape you are drawing · circle, rectangle, freehand, flood fill · the default shape is set in Preferences' },
                             { key: 'Alt/Option (hold)', action: 'The same menu at the pointer', hint: 'release over a button to pick it · a quick tap keeps it open' },
                             { key: 'Click ROI', action: 'Select a region' },
                             { key: 'Double-click ROI', action: 'Rename a region' },
@@ -38214,12 +38213,6 @@
                     const rect = cv.getBoundingClientRect();
                     const px = (e.clientX - rect.left) * view.lastW / rect.width;
                     const py = (e.clientY - rect.top) * view.lastH / rect.height;
-                    // ROI measurements are shown in the shared HUD.
-                    if (rectRoiMode && !roiDragging && !_roiTooltipEdit) {
-                        const hit = _roiHitTestMvView(view, Math.round(px), Math.round(py));
-                        _roiSuppressPixelInfo = _roiHasStats(hit ? hit.idx : -1);
-                        if (_roiSuppressPixelInfo) { hideAllPixelInfo(); return; }
-                    }
                     // Crop-drag in progress: update this pane's edge.
                     if (_cropDrag && _cropDrag.pane === view) {
                         const mxCss = e.clientX - rect.left;
@@ -39624,11 +39617,6 @@
                 });
                     // ROI drawing on qMRI canvases
                     if (rectRoiMode) cv.style.cursor = 'crosshair';
-                    cv.addEventListener('mousemove', (e) => {
-                        if (!rectRoiMode || roiDragging || _roiTooltipEdit) return;
-                        _roiSuppressPixelInfo = _roiHasStats(_roiHitIndexForCanvasEvent(e, cv, view.lastW, view.lastH));
-                        if (_roiSuppressPixelInfo) hideAllPixelInfo();
-                    });
                     cv.addEventListener('mouseleave', () => {
                         _roiSuppressPixelInfo = false;
                         const tq = document.getElementById('roi-stats-tooltip');
@@ -48962,7 +48950,7 @@
             const targetIsLive = !!(target && document.documentElement.contains(target));
             const orthoHold = _anyOrthoDragActive();
             const toolOwnsCursor = !windowing
-                && (rectRoiMode || document.body.classList.contains('ruler-mode'));
+                && (document.body.classList.contains('ruler-mode'));
             const targetCursor = targetIsLive ? getComputedStyle(target).cursor : '';
             const visible = !!(
                 targetIsLive

@@ -1876,6 +1876,36 @@ class TestROIDrag:
         return x0, y0, x1, y1
 
 
+    def test_floodfill_hold_shows_band_on_colorbar(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        page.set_viewport_size({"width": 1400, "height": 900})
+        page.wait_for_timeout(300)
+        _focus_kb(page)
+        page.mouse.move(700, 450)
+        page.keyboard.press("i")
+        page.wait_for_function("() => rectRoiMode", timeout=3_000)
+        page.evaluate("() => _roiSetShape('floodfill')")
+        box = page.locator("canvas#viewer").bounding_box()
+        x, y = box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.5
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.wait_for_function("() => primaryCb._fillBand", timeout=5_000)
+        assert page.locator("#roi-fill-gauge").count() == 0
+        lo0 = page.evaluate("() => primaryCb._fillBand.hi - primaryCb._fillBand.lo")
+        page.mouse.move(x, y - 60, steps=6)
+        page.wait_for_timeout(300)
+        lo1 = page.evaluate("() => primaryCb._fillBand.hi - primaryCb._fillBand.lo")
+        assert lo1 > lo0
+        assert page.evaluate("() => primaryCb.expanded")
+        page.mouse.up()
+        page.wait_for_function("() => !primaryCb._fillBand", timeout=3_000)
+        page.wait_for_function("() => !primaryCb.expanded", timeout=3_000)
+        # The shape picked is kept when ROI mode is turned off and on again.
+        page.keyboard.press("i")
+        page.keyboard.press("i")
+        page.wait_for_function("() => rectRoiMode", timeout=3_000)
+        assert page.evaluate("() => _roiShape") == "floodfill"
+
     def test_v_mode_roi_draws_circle_on_mv_pane(self, loaded_viewer, sid_3d):
         """Circle/rect/freehand ROIs should be drawable on mv panes in v-mode,
         tagged with the pane's mvDimX/mvDimY so they render on the right pane."""
@@ -1998,11 +2028,14 @@ class TestROIDrag:
         bar = page.locator("#roi-toolbar").bounding_box()
         assert bar["y"] + bar["height"] <= b["y"], (bar, b)
         assert page.locator('#roi-toolbar [data-action="numbers"]').count() == 0
-        cap = lambda: page.locator("#roi-toolbar .roi-menu-cap-name").inner_text()
-        assert cap() == "Circle"
-        assert "Preferences" in page.locator("#roi-toolbar .roi-menu-pref").inner_text()
+        cap = page.locator("#roi-toolbar .roi-menu-cap")
+        assert not cap.is_visible()
+        assert page.locator("#roi-toolbar .roi-menu-pref").inner_text() == "Change default in preferences"
+        assert bar["width"] < 150, bar
         page.locator('#roi-toolbar [data-shape="freehand"]').hover()
-        assert cap() == "Freehand"
+        assert not cap.is_visible()
+        page.locator('#roi-toolbar [data-shape="floodfill"]').hover()
+        assert cap.is_visible()
         assert page.locator("#roi-toolbar").bounding_box()["width"] == bar["width"]
         page.locator('#roi-toolbar [data-shape="rect"]').click()
         assert page.evaluate("() => _roiShape") == "rect"
