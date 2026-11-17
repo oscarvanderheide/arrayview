@@ -4801,9 +4801,14 @@ async function _processSignalDataBody(
     releaseQueue('panel open; readiness continues off-queue');
 
     try {
-        const pingUrl = pingUrlFromViewerUrl(openUrl);
+        // Probe the backend URL, not the display URL. Under Remote SSH the
+        // display URL is the client-side forward (asExternalUri may remap
+        // 8000 -> 8001 on the laptop), which does not exist on this host,
+        // where the extension runs; a refused probe there read as "port
+        // taken over" and failed every launch.
+        const pingUrl = pingUrlFromViewerUrl(url);
         if (!pingUrl) throw new Error('Unable to derive backend ping URL');
-        const metadataUrl = sessionMetadataUrlFromViewerUrl(openUrl);
+        const metadataUrl = sessionMetadataUrlFromViewerUrl(url);
         if (!metadataUrl) throw new Error('Unable to derive viewer session URL');
         // A disposal that already happened is the true cause of everything that
         // would fail below, so report it before probing the backend. Otherwise
