@@ -2,17 +2,17 @@
 
 ## ROI
 
-`Shift+R` shows or hides ROI mode. Hiding ROI mode keeps the session's ROIs.
+`i` (or double-clicking a pane) shows or hides ROI mode. It shows the value under the cursor, and dragging draws a region. Hiding ROI mode keeps the session's ROIs.
 
-Draw on the canvas to measure a region. The default shape is a circle.
+Draw on the canvas to measure a region. It starts with your default shape, a circle unless you set `viewer.roi_shape` (Preferences, or `arrayview config set viewer.roi_shape freehand`).
 
-Shapes: circle, rectangle, freehand, flood fill. The shape buttons sit at the top of the ROI panel, which opens with ROI mode.
+Shapes: circle, rectangle, freehand, flood fill. The button at the bottom right, left of the logo, shows the shape you are drawing; click it to change shape. The menu says how to draw the shape under the pointer, and links to Preferences for the shape `i` starts with. Holding `Alt` (`Option` on Mac) opens the same menu at the pointer: release over a button to pick it, or tap `Alt` to keep the menu open.
 
 For flood fill, `[` / `]` adjusts tolerance.
 
 Click an existing ROI to select it. `Delete` / `Backspace` removes it.
 
-The ROI panel beside the image lists every ROI with its mean ± standard deviation. Hovering a row, or the ROI itself, highlights that ROI and shows its mean ± std next to it on the image. Click a row for its distribution (a histogram on a value axis shared by all ROIs, with a tick at the mean), pixel count, min and max; in qMRI it lists the numbers for every map. Double-click a name to rename it. Drag the panel's header to move it. `copy` puts the numbers on the clipboard as a table that pastes straight into a spreadsheet; `CSV` downloads the same table. It has one row per ROI with its mean, std, min, max and pixel count; in qMRI each map gets its own mean/std/min/max columns. `mask` downloads a label mask.
+The numbers panel appears with the first ROI, at the top right; drag its header to put it somewhere else, and it opens there next time. `×` or `Esc` closes it; it comes back with the next ROI you draw. It lists every ROI with its mean ± standard deviation. Hovering a row, or the ROI itself, highlights that ROI and shows its mean ± std next to it on the image. Click a row for its distribution (a histogram on a value axis shared by all ROIs, with a tick at the mean), pixel count, min and max; in qMRI it lists the numbers for every map. Double-click a name to rename it. `copy` puts the numbers on the clipboard as a table that pastes straight into a spreadsheet; `CSV` downloads the same table. It has one row per ROI with its mean, std, min, max and pixel count; in qMRI each map gets its own mean/std/min/max columns. `mask` downloads a label mask.
 
 ### Side by side
 
@@ -23,9 +23,6 @@ echo 5. Hovering a ROI shows each pane's own mean ± std next to it. The numbers
 follow when you scroll, move a pane with `[`/`]`, or add and remove panes. ROIs
 carry over when you go back to one image. `copy` and `CSV` give one row per ROI
 and pane.
-
-The quick freehand outline of pixel-info mode (`i`, then drag) does the same:
-drawn on one pane, shown and measured on all of them.
 
 ROIs are not available in 3-plane or qMRI rows of a side-by-side view, when the
 panes differ in size, and flood fill is single-view only.

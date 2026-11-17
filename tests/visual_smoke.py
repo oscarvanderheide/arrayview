@@ -1350,12 +1350,12 @@ def run_smoke(page, base, client, tmp):
     else:
         print(f"  WARN: flip toggle failed — flipped={flipped} unflipped={unflipped}")
 
-    # ── 58: rectangle ROI mode (Shift+R) ────────────────────────────────────────
-    print("58: Shift+R toggles rectangle ROI mode")
+    # ── 58: rectangle ROI mode (i) ────────────────────────────────────────
+    print("58: i toggles ROI mode")
     _goto(page, base, sid3d, wait=1200)
     _focus(page)
-    # Press Shift+R to enable rect ROI mode — check status bar message
-    _press(page, "Shift+R", wait=400)
+    # Press i to enable ROI mode — check status bar message
+    _press(page, "i", wait=400)
     status_on = page.evaluate(
         "() => (document.getElementById('status') || {}).textContent || ''"
     )
@@ -1366,13 +1366,15 @@ def run_smoke(page, base, client, tmp):
     page.mouse.down()
     page.mouse.move(box['x'] + box['width'] * .78, box['y'] + box['height'] * .78, steps=10)
     page.mouse.up()
+    page.wait_for_function('() => _rois.length && _rois[0].stats')
+    page.evaluate("() => _roiSetHudOpen(true)")
     page.wait_for_selector('#roi-stats-hud .roi-hud-row', state='visible')
     page.locator('#roi-stats-hud .roi-hud-row').first.hover()
     page.wait_for_function('() => _roiHudHoverIdx === 0')
     _shot(page, '58c_roi_statistics_hud')
     _focus(page)
-    # Press Shift+R again to disable
-    _press(page, "Shift+R", wait=400)
+    # Press i again to disable
+    _press(page, "i", wait=400)
     assert not page.locator('#roi-stats-hud').is_visible()
     assert not page.locator('#roi-toolbar').is_visible()
     status_off = page.evaluate(

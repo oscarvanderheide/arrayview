@@ -881,7 +881,7 @@ class TestKeyboard:
             "() => detachedDimMode && compareActive && compareFrames.slice(0, 3).every(Boolean)",
             timeout=10_000,
         )
-        page.keyboard.press("Shift+R")
+        page.keyboard.press("i")
         page.wait_for_function("() => rectRoiMode", timeout=5_000)
         box = page.evaluate(
             "() => { const r = compareCanvases[1].getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; }"
@@ -1884,8 +1884,8 @@ class TestROIDrag:
         page.keyboard.press("v")
         page.wait_for_selector("#mv-panes", state="visible", timeout=5_000)
         page.wait_for_timeout(400)
-        page.keyboard.press("Shift+R")
-        page.wait_for_selector("#roi-toolbar .roi-hud-tool", timeout=2_000)
+        page.keyboard.press("i")
+        page.wait_for_function("() => rectRoiMode", timeout=2_000)
         page.evaluate("() => _roiSetShape('circle')")
         page.wait_for_timeout(200)
 
@@ -1918,8 +1918,8 @@ class TestROIDrag:
         sid = client.post("/load", json={"filepath": str(path), "name": "half"}, timeout=15).json()["sid"]
         page = loaded_viewer(sid)
         _focus_kb(page)
-        page.keyboard.press("Shift+R")
-        page.wait_for_selector("#roi-toolbar .roi-hud-tool", timeout=3_000)
+        page.keyboard.press("i")
+        page.wait_for_function("() => rectRoiMode", timeout=3_000)
         page.evaluate("_roiSetShape('rect')"); page.wait_for_timeout(150)
         cv = page.locator("canvas#viewer")
         box = cv.bounding_box()
@@ -1953,8 +1953,8 @@ class TestROIDrag:
         # the next render.
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
-        page.keyboard.press("Shift+R")
-        page.wait_for_selector("#roi-toolbar .roi-hud-tool", timeout=3_000)
+        page.keyboard.press("i")
+        page.wait_for_function("() => rectRoiMode", timeout=3_000)
         self._draw_roi(page)
         box = page.locator("canvas#viewer").bounding_box()
         page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
@@ -1969,31 +1969,101 @@ class TestROIDrag:
         assert sizes[0] > 1.05, f"pinch should zoom in, got {sizes}"
         assert abs(sizes[1] - sizes[2]) < 1 and abs(sizes[3] - sizes[4]) < 1, sizes
 
-    def test_roi_toolbar_then_numbers_beside_panes(self, loaded_viewer, sid_3d):
-        # Shape buttons first, left of the image; the numbers only once an
-        # ROI exists, right of it. Neither covers the image when there is room.
+    def test_roi_alt_menu_and_numbers_panel(self, loaded_viewer, sid_3d):
+        # i turns on ROI mode with the default shape and nothing over the
+        # image; the shape button (left of the logo) shows the shape and opens
+        # the menu, as does holding Alt. The numbers panel appears with the
+        # first ROI, keeps its width while values change, moves by its header,
+        # and closes with × / Esc.
         page = loaded_viewer(sid_3d)
         page.set_viewport_size({"width": 1400, "height": 900})
         page.wait_for_timeout(300)
         _focus_kb(page)
-        page.keyboard.press("Shift+R")
-        page.wait_for_selector("#roi-toolbar.visible", timeout=3_000)
-        assert not page.locator("#roi-stats-hud").is_visible()
-        self._draw_roi(page)
-        page.wait_for_selector("#roi-stats-hud.visible", timeout=3_000)
-        rects = page.evaluate("""() => {
-            const r = id => document.getElementById(id).getBoundingClientRect();
-            const img = document.getElementById('canvas-viewport').getBoundingClientRect();
-            return { bar: r('roi-toolbar'), hud: r('roi-stats-hud'), img,
-                     form: document.getElementById('roi-stats-hud').dataset.form };
-        }""")
-        assert rects["bar"]["right"] <= rects["img"]["left"], rects
-        assert rects["hud"]["left"] >= rects["img"]["right"], rects
-        assert rects["form"] == "full", rects
-        page.keyboard.press("Shift+R")
-        page.wait_for_timeout(300)
+        page.mouse.move(700, 450)
+        page.keyboard.press("i")
+        page.wait_for_function("() => rectRoiMode && _pixelInfoVisible", timeout=3_000)
+        assert page.evaluate("() => _roiShape") == "circle"
         assert not page.locator("#roi-toolbar").is_visible()
         assert not page.locator("#roi-stats-hud").is_visible()
+        btn = page.locator("#roi-shape-btn")
+        assert btn.is_visible()
+        b = btn.bounding_box()
+        logo = page.locator("#help-hint").bounding_box()
+        assert b["x"] + b["width"] <= logo["x"] and abs(b["y"] - logo["y"]) < 4, (b, logo)
+        assert page.evaluate("() => document.querySelector('#roi-shape-btn').getAttribute('aria-label')").lower() == "roi shape: circle"
+
+        # Shape button → menu above it → rectangle; the button follows.
+        btn.click()
+        page.wait_for_selector("#roi-toolbar.visible", timeout=2_000)
+        bar = page.locator("#roi-toolbar").bounding_box()
+        assert bar["y"] + bar["height"] <= b["y"], (bar, b)
+        assert page.locator('#roi-toolbar [data-action="numbers"]').count() == 0
+        cap = lambda: page.locator("#roi-toolbar .roi-menu-cap-name").inner_text()
+        assert cap() == "Circle"
+        assert "Preferences" in page.locator("#roi-toolbar .roi-menu-pref").inner_text()
+        page.locator('#roi-toolbar [data-shape="freehand"]').hover()
+        assert cap() == "Freehand"
+        assert page.locator("#roi-toolbar").bounding_box()["width"] == bar["width"]
+        page.locator('#roi-toolbar [data-shape="rect"]').click()
+        assert page.evaluate("() => _roiShape") == "rect"
+        assert not page.locator("#roi-toolbar").is_visible()
+        assert "rect" in page.evaluate("() => document.querySelector('#roi-shape-btn').getAttribute('aria-label')").lower()
+
+        self._draw_roi(page)
+        page.wait_for_function("() => _rois.length === 1 && _rois[0].stats", timeout=5_000)
+        page.wait_for_selector("#roi-stats-hud.visible", timeout=2_000)
+        hud = page.locator("#roi-stats-hud").bounding_box()
+        assert hud["x"] + hud["width"] > 1400 - 30 and hud["y"] < 30, hud  # top right
+
+        # Hold Alt, release over the circle button → picked.
+        page.mouse.move(700, 450)
+        page.keyboard.down("Alt")
+        page.wait_for_selector("#roi-toolbar.visible", timeout=2_000)
+        page.locator('#roi-toolbar [data-shape="circle"]').hover()
+        page.wait_for_timeout(350)
+        page.keyboard.up("Alt")
+        assert page.evaluate("() => _roiShape") == "circle"
+        assert not page.locator("#roi-toolbar").is_visible()
+
+        # Width holds when the numbers get narrower.
+        w0 = page.evaluate("() => document.getElementById('roi-stats-hud').offsetWidth")
+        page.evaluate("() => { _rois[0].stats = { ..._rois[0].stats, mean: 1, std: 0 }; _reconcileRoiHud(); }")
+        assert page.evaluate("() => document.getElementById('roi-stats-hud').offsetWidth") == w0
+
+        # Drag by the header; a click elsewhere leaves it open.
+        head = page.locator("#roi-stats-hud .roi-hud-title").bounding_box()
+        page.mouse.move(head["x"] + 10, head["y"] + 5)
+        page.mouse.down()
+        page.mouse.move(head["x"] - 300, head["y"] + 200, steps=6)
+        page.mouse.up()
+        moved = page.locator("#roi-stats-hud").bounding_box()
+        assert moved["y"] > hud["y"] + 150 and moved["x"] < hud["x"] - 250, (hud, moved)
+        page.mouse.click(30, 880)
+        assert page.locator("#roi-stats-hud").is_visible()
+
+
+        # × closes it; the next ROI drawn brings it back where it was.
+        page.locator("#roi-stats-hud .roi-hud-close").click()
+        assert not page.locator("#roi-stats-hud").is_visible()
+        box = page.locator("canvas#viewer").bounding_box()
+        page.mouse.move(box["x"] + box["width"] * 0.7, box["y"] + box["height"] * 0.7)
+        page.mouse.down()
+        page.mouse.move(box["x"] + box["width"] * 0.85, box["y"] + box["height"] * 0.85, steps=6)
+        page.mouse.up()
+        page.wait_for_selector("#roi-stats-hud.visible", timeout=3_000)
+        assert page.evaluate("() => _rois.length") == 2
+        again = page.locator("#roi-stats-hud").bounding_box()
+        assert abs(again["x"] - moved["x"]) < 2 and abs(again["y"] - moved["y"]) < 2, (moved, again)
+
+        # Shift+R no longer does anything; i turns everything off.
+        page.keyboard.press("Shift+R")
+        assert page.evaluate("() => rectRoiMode")
+        page.keyboard.press("i")
+        page.wait_for_timeout(300)
+        assert not page.evaluate("() => rectRoiMode || _pixelInfoVisible")
+        assert not page.locator("#roi-toolbar").is_visible()
+        assert not page.locator("#roi-stats-hud").is_visible()
+        assert not page.locator("#roi-shape-btn").is_visible()
 
 
 class TestNormalInspectInteractions:
@@ -2126,53 +2196,39 @@ class TestNormalInspectInteractions:
         assert beyond["vmax"] == pytest.approx(at_apex["vmax"], abs=1e-9)
 
 
-    def test_info_hover_drag_only_inspects(self, loaded_viewer, sid_2d):
+    def test_info_hover_drag_draws_a_region(self, loaded_viewer, sid_2d):
+        # i is ROI mode too: a drag draws a real ROI (default circle) and never
+        # windows the image; the value readout stays on.
         page = loaded_viewer(sid_2d)
         canvas = page.locator("#viewer")
         box = canvas.bounding_box()
         x0, y0 = box["x"] + box["width"] * 0.25, box["y"] + box["height"] * 0.25
         x1, y1 = box["x"] + box["width"] * 0.65, box["y"] + box["height"] * 0.65
+        _focus_kb(page)
         if not page.evaluate("() => _pixelInfoVisible"):
             page.keyboard.press("i")
+        page.wait_for_function("() => rectRoiMode && _pixelInfoVisible", timeout=3_000)
         before = page.evaluate(
             "() => ({ range: [manualVmin ?? currentVmin, manualVmax ?? currentVmax], rois: _rois.length })"
         )
-
         page.mouse.move(x0, y0)
         page.mouse.down()
         page.mouse.move(x1, y1, steps=8)
-        during = page.evaluate(
-            """() => ({
-                windowing: !!_bcDrag,
-                hasTemporaryOutline: !!document.getElementById('info-region-outline'),
-                roiMode: rectRoiMode,
-                rois: _rois.length,
-            })"""
-        )
+        assert not page.evaluate("() => !!_bcDrag")
         page.mouse.up()
-        page.wait_for_timeout(180)
-        released = page.evaluate(
+        page.wait_for_function(f"() => _rois.length === {before['rois'] + 1}", timeout=5_000)
+        after = page.evaluate(
             """() => ({
                 range: [manualVmin ?? currentVmin, manualVmax ?? currentVmax],
                 windowing: !!_bcDrag,
                 infoActive: _pixelInfoVisible,
-                hasTemporaryOutline: !!document.getElementById('info-region-outline'),
-                rois: _rois.length,
+                type: _rois[_rois.length - 1].type,
+                quickOutline: !!document.getElementById('info-region-outline'),
             })"""
         )
-
-        assert during == {
-            "windowing": False,
-            "hasTemporaryOutline": False,
-            "roiMode": False,
-            "rois": before["rois"],
-        }
-        assert released == {
-            "range": before["range"],
-            "windowing": False,
-            "infoActive": True,
-            "hasTemporaryOutline": False,
-            "rois": before["rois"],
+        assert after == {
+            "range": before["range"], "windowing": False, "infoActive": True,
+            "type": "circle", "quickOutline": False,
         }
 
 

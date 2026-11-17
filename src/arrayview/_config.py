@@ -18,6 +18,7 @@ _VALID_ORTHO_LAYOUTS = {"horizontal", "big-left"}
 _VALID_DIMBAR_MODES = {"compact", "extended"}
 _VALID_TURN_ANIMATIONS = {"rotate", "fade"}
 _VALID_QMRI_STARTS = {"picker", "straight"}
+_VALID_ROI_SHAPES = {"circle", "rect", "freehand", "floodfill"}
 # What q opens in qMRI: parameter maps by role, synthetic contrasts by name.
 QMRI_START_NAMES = (
     "t1", "t2", "pd", "b1", "db0", "phase",
@@ -52,6 +53,7 @@ BUILTIN_PREFERENCES = {
         "dimbar_mode": "compact",
         "turn_animation": "rotate",
         "qmri_start": "picker",
+        "roi_shape": "circle",
     },
 }
 PREFERENCE_SCHEMA = {
@@ -68,6 +70,7 @@ PREFERENCE_SCHEMA = {
         "turn_animation": sorted(_VALID_TURN_ANIMATIONS),
         "qmri_start": sorted(_VALID_QMRI_STARTS),
         "qmri_maps": "non-empty list of names",
+        "roi_shape": ["circle", "rect", "freehand", "floodfill"],
     },
     "nninteractive": {"url": "string"},
 }
@@ -159,6 +162,8 @@ def _validate_preference(section: str, key: str, value):
         return _normalized_string(value, _VALID_TURN_ANIMATIONS, "viewer.turn_animation")
     if section == "viewer" and key == "qmri_start":
         return _normalized_string(value, _VALID_QMRI_STARTS, "viewer.qmri_start")
+    if section == "viewer" and key == "roi_shape":
+        return _normalized_string(value, _VALID_ROI_SHAPES, "viewer.roi_shape")
     if section == "viewer" and key == "qmri_maps":
         if not isinstance(value, list) or not value or not all(isinstance(v, str) for v in value):
             raise InvalidPreferenceError("viewer.qmri_maps must be a non-empty list of names")
@@ -324,6 +329,15 @@ def get_viewer_qmri_start() -> str | None:
         return None
     value = viewer_cfg.get("qmri_start")
     return value.strip().lower() if isinstance(value, str) and value.strip().lower() in _VALID_QMRI_STARTS else None
+
+
+def get_viewer_roi_shape() -> str | None:
+    """Return the shape ROI mode starts with (circle, rect, freehand, floodfill)."""
+    viewer_cfg = load_config().get("viewer", {})
+    if not isinstance(viewer_cfg, dict):
+        return None
+    value = viewer_cfg.get("roi_shape")
+    return value.strip().lower() if isinstance(value, str) and value.strip().lower() in _VALID_ROI_SHAPES else None
 
 
 def get_viewer_qmri_maps() -> list[str] | None:

@@ -37,11 +37,14 @@ arrayview config set viewer.dimbar_mode extended
 arrayview config set viewer.turn_animation fade
 arrayview config set viewer.qmri_start straight
 arrayview config set viewer.qmri_maps t1,t2,pd,t1w
+arrayview config set viewer.roi_shape freehand
 ```
 
 Ortho layouts: `horizontal`, `big-left`.
 
 Dimbar modes: `compact`, `extended`.
+
+ROI shapes (what `i` starts drawing with): `circle` (default), `rect`, `freehand`, `floodfill`.
 
 Turn animations (r / t / o): `rotate` (default), `fade`.
 
