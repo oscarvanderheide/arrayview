@@ -20596,7 +20596,9 @@
         // Not in 3-plane / qMRI rows (panes × planes × maps is too much to
         // read) and not when the panes differ in size (a pixel outline has no
         // meaning across grids).
-        function _roiComparePanes() {
+        // `withDiff`: also the centre pane when it shows a difference image
+        // (A−B, |A−B|, relative); it gets the ROI and its own numbers.
+        function _roiComparePanes({ withDiff = true } = {}) {
             if (!_comparePanesShown()) return [];
             const n = Math.min(compareCanvases.length,
                 detachedDimMode ? detachedDimIdx.length : compareDisplaySids.length);
@@ -20610,6 +20612,16 @@
                     indices: _comparePaneHoverIndices(i),
                     key: detachedDimMode ? `d${detachedDimIdx[i]}` : `s${i}`,
                     label: detachedDimMode ? _detachedDimPaneLabel(detachedDimIdx[i]) : comparePaneLabelForSid(paneSid),
+                });
+            }
+            const dcv = document.getElementById('compare-diff-canvas');
+            const dpane = document.getElementById('compare-diff-pane');
+            const sids = withDiff && diffMode >= 1 && diffMode <= 3 && dcv && dpane && dpane.style.display !== 'none' ? _diffPaneSids() : null;
+            if (sids && out.length >= 2) {
+                out.push({
+                    i: 'diff', cv: dcv, sid: null, diffSids: sids,
+                    indices: indices.slice(), key: 'diff',
+                    label: COMPARE_CENTER_LABELS[diffMode],
                 });
             }
             return out;
@@ -21231,7 +21243,7 @@
             const hi = shown.length ? Math.max(...shown.map(st => st.max).filter(Number.isFinite)) : NaN;
             const copyIcon = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/></svg>';
             const dlIcon = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/></svg>';
-            const across = panes.length > 1 ? `in ${panes.length} ${qmriActive && !_roiComparePanes().length ? 'maps' : 'arrays'}` : '';
+            const across = panes.length > 1 ? `in ${panes.length} ${qmriActive && !_roiComparePanes().length ? 'maps' : panes.some(p => p.key === 'diff') ? 'panes' : 'arrays'}` : '';
             let html = '<div class="roi-hud-head" title="Drag to move">'
                 + '<svg class="roi-hud-grip" viewBox="0 0 6 10" aria-hidden="true"><circle cx="1" cy="1" r="1"/><circle cx="5" cy="1" r="1"/><circle cx="1" cy="5" r="1"/><circle cx="5" cy="5" r="1"/><circle cx="1" cy="9" r="1"/><circle cx="5" cy="9" r="1"/></svg>'
                 + '<span class="roi-hud-title">ROIs</span>'
@@ -21757,7 +21769,13 @@
             const payload = _roiPayload([Object.assign({}, roi, { visible: true })], { currentIndices: true })[0];
             if (!payload) return;
             const token = roi._paneStatsToken = (roi._paneStatsToken || 0) + 1;
-            Promise.all(panes.map(p => proxyFetch(`/roi_stats/${p.sid}`, {
+            const diffExtra = () => {
+                if (!(detachedDimMode && detachedDim >= 0)) return {};
+                const a = indices.slice(), b = indices.slice();
+                a[detachedDim] = detachedDimIdx[0]; b[detachedDim] = detachedDimIdx[1];
+                return { indices_a: a, indices_b: b };
+            };
+            Promise.all(panes.map(p => proxyFetch(p.diffSids ? `/roi_stats_diff/${p.diffSids[0]}/${p.diffSids[1]}` : `/roi_stats/${p.sid}`, {
                 method: 'POST',
                 headers: {'Content-Type':'application/json'},
                 body: JSON.stringify({
@@ -21765,6 +21783,7 @@
                     indices: p.indices.slice(),
                     complex_mode: complexMode,
                     rois: [Object.assign({}, payload, { scope: { indices: p.indices.slice(), broadcast_dims: [], values: {} } })],
+                    ...(p.diffSids ? { diff_mode: diffMode, ...diffExtra() } : {}),
                 }),
             }).then(r => r.json())
                 .then(d => ({ key: p.key, label: p.label, stats: (d.results && d.results[0] && d.results[0].stats) || null }))
@@ -29984,8 +30003,15 @@
         // Side by side: every pane gets its own overlay canvas (as the crop
         // and quick-measure overlays do) showing the same ROIs; the hover
         // pill on a pane carries that pane's own numbers.
+        let _roiComparePaneSig = '';
         function _drawAllCompareRois(previewRoi) {
             const panes = _roiComparePanes();
+            // Panes came or went (centre difference on / off / other kind): measure again.
+            const sig = panes.map(p => p.key).join(',') + ':' + diffMode;
+            if (sig !== _roiComparePaneSig) {
+                _roiComparePaneSig = sig;
+                if (_rois.length) _scheduleRoiStatsRefresh();
+            }
             const live = new Set(panes.map(p => p.cv));
             compareCanvases.forEach(cv => {
                 if (cv && cv._roiOverlay && !live.has(cv)) cv._roiOverlay.style.display = 'none';
@@ -46769,9 +46795,10 @@
             });
         });
         // Compare pane drag-to-pan when zoomed past viewport
-        compareCanvases.forEach((cv, cmpPaneIdx) => {
-            // ROI mode in side by side: draw, select, move and resize on any
-            // pane; the region shows on all of them (see _drawAllCompareRois).
+        // ROI mode in side by side: draw, select, move and resize on any
+        // pane, the difference pane included; the region shows on all of
+        // them (see _drawAllCompareRois).
+        function _wireCompareRoiPointer(cv) {
             const roiPoint = (ev) => {
                 const rect = cv.getBoundingClientRect();
                 return {
@@ -46886,6 +46913,9 @@
                 window.addEventListener('mousemove', onMove);
                 window.addEventListener('mouseup', onUp);
             });
+        }
+        [...compareCanvases, document.getElementById('compare-diff-canvas')].forEach(cv => { if (cv) _wireCompareRoiPointer(cv); });
+        compareCanvases.forEach((cv, cmpPaneIdx) => {
             cv.addEventListener('mousedown', (e) => {
                 if (!compareActive) return;
                 // Hover-info quick-measure: a plain click-drag while hover info
@@ -46904,7 +46934,7 @@
                     // Panes of the same size all get the outline, each with
                     // its own numbers; otherwise only the pane drawn on.
                     const quickPanes = () => {
-                        const panes = _roiComparePanes();
+                        const panes = _roiComparePanes({ withDiff: false });
                         return panes.length && !_roiUnavailableReason({ checkCanvases: true }) ? panes : [{ i: cmpPaneIdx, cv }];
                     };
                     _infoFreehandDragging = true;

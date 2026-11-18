@@ -2107,6 +2107,35 @@ class TestROIDrag:
             want = self._rect_mean(arr, ind, r["dx"], r["dy"], r["fx"], r["fy"], r["x0"], r["y0"], r["x1"], r["y1"])
             assert abs(mean - want) < 1e-4, (qi, mean, want)
 
+    def test_roi_on_difference_pane_has_its_own_numbers(self, page, client, server_url, tmp_path, arr_3d, sid_3d):
+        # Shift+X with a ROI: the centre difference pane shows it too and the
+        # panel gets an A−B line whose mean is mean(A) − mean(B).
+        p = tmp_path / "b.npy"
+        np.save(p, arr_3d * 0.5 + 2)
+        sid_b = client.post("/load", json={"filepath": str(p), "name": "b"}).json()["sid"]
+        page.set_viewport_size({"width": 1400, "height": 900})
+        page.goto(f"{server_url}/?sid={sid_3d}&compare_sid={sid_b}&compare_sids={sid_b}")
+        page.wait_for_function("() => compareActive && compareFrames.slice(0, 2).every(Boolean)", timeout=15_000)
+        page.wait_for_timeout(500)
+        _focus_kb(page)
+        page.mouse.move(5, 5)
+        page.keyboard.press("i")
+        page.wait_for_function("() => rectRoiMode", timeout=3_000)
+        page.evaluate("_roiSetShape('rect')")
+        box = page.locator("#compare-left-canvas").bounding_box()
+        self._drag_rect(page, box)
+        page.wait_for_function("() => _rois.length === 1 && (_rois[0].paneStats || []).length === 2", timeout=8_000)
+        page.mouse.move(5, 5)
+        page.keyboard.press("Shift+X")
+        page.wait_for_function(
+            "() => diffMode === 1 && (_rois[0].paneStats || []).length === 3 && _rois[0].paneStats.every(q => q.stats)",
+            timeout=8_000,
+        )
+        a, b, d = page.evaluate("() => ['s0', 's1', 'diff'].map(k => _roiPaneStat(_rois[0], k).mean)")
+        assert abs(d - (a - b)) < 1e-4, (a, b, d)
+        assert page.evaluate("() => { const o = document.getElementById('compare-diff-canvas')._roiOverlay; return !!o && o.style.display !== 'none'; }")
+        assert page.locator("#roi-stats-hud .roi-hud-panerow").count() == 3
+
     def test_roi_outline_follows_pinch_zoom(self, loaded_viewer, sid_3d):
         # The outline canvas must resize with every zoom step, not only on
         # the next render.

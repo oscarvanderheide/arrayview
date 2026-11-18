@@ -383,6 +383,46 @@ def register_analysis_routes(app, get_session_or_404) -> None:
             )
         return {"results": results}
 
+    @app.post("/roi_stats_diff/{sid_a}/{sid_b}")
+    def get_roi_stats_diff(sid_a: str, sid_b: str, body: dict = Body(...)):
+        """ROI numbers on the side-by-side difference image (A−B, |A−B|,
+        |A−B|/|A|) at the current position. Same payload as /roi_stats plus
+        diff_mode and optional indices_a / indices_b."""
+        from arrayview._diff import _compute_diff
+        from arrayview._session import SESSIONS
+
+        session_a, session_b = SESSIONS.get(sid_a), SESSIONS.get(sid_b)
+        if not session_a or not session_b:
+            return Response(status_code=404)
+        dim_x = int(body.get("dim_x", 1))
+        dim_y = int(body.get("dim_y", 0))
+        indices = _roi_indices_from_body(body, session_a.data.ndim, session_a.shape)
+        join = lambda v: ",".join(str(int(i)) for i in v) if v else None  # noqa: E731
+        try:
+            raw = _compute_diff(
+                session_a, session_b, dim_x, dim_y, join(indices), -1, 0,
+                int(body.get("complex_mode", 0)), False, int(body.get("diff_mode", 1)),
+                indices_a=join(body.get("indices_a")), indices_b=join(body.get("indices_b")),
+            )[0]
+        except Exception:
+            return Response(status_code=422)
+        results = []
+        for roi_idx, roi in enumerate(body.get("rois") or []):
+            mask = _roi_mask_for_shape(roi, raw.shape, tuple(indices))
+            finite = _roi_finite_values(raw, mask)
+            stats = None
+            if finite.size:
+                stats = {
+                    "min": _safe_float(finite.min()),
+                    "max": _safe_float(finite.max()),
+                    "mean": _safe_float(finite.mean()),
+                    "std": _safe_float(finite.std()),
+                    "n": int(finite.size),
+                }
+                stats["hist"] = _roi_value_histogram([finite], stats["min"], stats["max"])
+            results.append({"roi": roi.get("id", roi_idx), "stats": stats})
+        return {"results": results}
+
     @app.post("/roi_mask/{sid}")
     def export_roi_mask_structured(
         sid: str,
