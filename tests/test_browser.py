@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from conftest import pick_panes, side_by_side
+from conftest import pick_panes, register_array, side_by_side
 
 pytestmark = pytest.mark.browser
 
@@ -1051,6 +1051,56 @@ class TestKeyboard:
         page.keyboard.press("q")
         page.wait_for_function("() => !compareQmriActive && detachedDimMode && compareActive", timeout=5_000)
         assert page.evaluate("() => detachedDimIdx.join(',')") == "1,2"
+
+    def test_mosaic_tiles_the_case_dim(self, loaded_viewer, client, tmp_path):
+        """z and Shift+arrows lay out the which-file dim like any other; z on it
+        while it is side by side is refused (it would repeat every pane); a
+        mosaic of more than 100 tiles needs a second z press."""
+        stack_dir = tmp_path / "case_mosaic_src"
+        stack_dir.mkdir()
+        rng = np.random.default_rng(3)
+        for name in ("alpha", "bravo", "charlie"):
+            np.save(stack_dir / f"{name}.npy", rng.random((32, 32, 5)).astype(np.float32))
+        sid = client.post(
+            "/load", json={"dir_patterns": [str(stack_dir / "*.npy")], "load": "lazy", "stack": "auto"}
+        ).json()["sid"]
+
+        page = loaded_viewer(sid)
+        _focus_kb(page)
+        page.wait_for_function("() => detachedDimMode && compareActive", timeout=10_000)
+        page.evaluate("() => { activeDim = collectionSpatialNdim; current_slice_dim = collectionSpatialNdim; }")
+        page.keyboard.press("z")
+        page.wait_for_timeout(300)
+        assert page.evaluate("() => dim_z") == -1
+        side_by_side(page)
+        page.wait_for_function("() => !detachedDimMode && !compareActive", timeout=10_000)
+        page.wait_for_timeout(500)
+        page.evaluate("() => { activeDim = collectionSpatialNdim; current_slice_dim = collectionSpatialNdim; }")
+        page.keyboard.press("z")
+        page.wait_for_function("() => dim_z === collectionSpatialNdim", timeout=5_000)
+        page.keyboard.press("z")
+        page.wait_for_function("() => dim_z < 0", timeout=5_000)
+        page.wait_for_timeout(500)
+        page.evaluate("() => { activeDim = collectionSpatialNdim; }")
+        page.keyboard.press("Shift+ArrowRight")
+        page.wait_for_function("() => dim_z === collectionSpatialNdim", timeout=5_000)
+        page.wait_for_timeout(500)
+        page.evaluate("() => { activeDim = 2; }")
+        page.keyboard.press("Shift+ArrowDown")
+        page.wait_for_function(
+            "() => dim_z === collectionSpatialNdim && dim_z2 === 2 && mosaicLayout === 'grid'", timeout=5_000
+        )
+
+    def test_mosaic_over_100_tiles_needs_second_press(self, loaded_viewer, client, tmp_path):
+        arr = np.random.default_rng(4).random((16, 16, 150)).astype(np.float32)
+        page = loaded_viewer(register_array(client, arr, tmp_path, "many_slices"))
+        _focus_kb(page)
+        page.evaluate("() => { current_slice_dim = 2; activeDim = 2; }")
+        page.keyboard.press("z")
+        page.wait_for_timeout(300)
+        assert page.evaluate("() => dim_z") == -1
+        page.keyboard.press("z")
+        page.wait_for_function("() => dim_z === 2", timeout=10_000)
 
     def test_compare_entry_creates_side_by_side_view(
         self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
