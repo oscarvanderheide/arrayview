@@ -1978,6 +1978,135 @@ class TestROIDrag:
         assert stats_flip is not None, "ROI stats should be fetched after flip"
         assert abs(stats_flip["mean"] - 20.0) < 0.1, f"flipped mean should be ~20, got {stats_flip['mean']}"
 
+    def test_roi_follows_t_r_mirror_and_waits_out_o(self, loaded_viewer, client, tmp_path):
+        # t, r and mirroring move a ROI with its pixels, so it keeps measuring
+        # the same voxels; o hides it (another plane) and going back with o
+        # shows it again, unchanged.
+        from conftest import register_array
+
+        arr = np.random.default_rng(5).random((9, 40, 56)).astype(np.float32)
+        page = loaded_viewer(register_array(client, arr, tmp_path, "roifollow"))
+        _focus_kb(page)
+        page.keyboard.press("i")
+        page.wait_for_function("() => rectRoiMode", timeout=3_000)
+        page.evaluate("_roiSetShape('rect')")
+        cv = page.locator("canvas#viewer").bounding_box()
+        page.mouse.move(cv["x"] + cv["width"] * 0.1, cv["y"] + cv["height"] * 0.55)
+        page.mouse.down()
+        page.mouse.move(cv["x"] + cv["width"] * 0.35, cv["y"] + cv["height"] * 0.9, steps=8)
+        page.mouse.up()
+        page.wait_for_function("() => _rois.length === 1 && _rois[0].stats", timeout=5_000)
+        mean0 = page.evaluate("() => _rois[0].stats.mean")
+
+        def same_pixels(step):
+            page.wait_for_timeout(700)
+            page.wait_for_function("() => _rois[0].stats", timeout=5_000)
+            assert page.evaluate("() => _roiIsVisibleOnCurrentSlice(_rois[0])"), step
+            assert abs(page.evaluate("() => _rois[0].stats.mean") - mean0) < 1e-4, step
+
+        page.mouse.move(5, 5)
+        page.keyboard.press("t"); same_pixels("t")
+        page.keyboard.press("r"); same_pixels("r")
+        page.evaluate("() => { activeDim = dim_x; renderInfo(); }")
+        page.keyboard.press("x"); same_pixels("mirror")
+        frame = page.evaluate("() => JSON.stringify([_rois[0].frame, _rois[0].x0, _rois[0].y0, _rois[0].x1, _rois[0].y1])")
+
+        page.keyboard.press("o")
+        page.wait_for_timeout(600)
+        assert not page.evaluate("() => _roiIsVisibleOnCurrentSlice(_rois[0])")
+        assert page.evaluate("() => _rois.length") == 1
+        assert page.locator("#roi-stats-hud .roi-hud-row.off").count() == 1
+        for _ in range(2):
+            page.keyboard.press("o")
+            page.wait_for_timeout(400)
+        assert page.evaluate("() => JSON.stringify([_rois[0].frame, _rois[0].x0, _rois[0].y0, _rois[0].x1, _rois[0].y1])") == frame
+        same_pixels("back with o")
+
+    @staticmethod
+    def _rect_mean(arr, indices, dx, dy, fx, fy, x0, y0, x1, y1):
+        """Mean of the voxels under a display-space rect on the plane (dx, dy)."""
+        sl = tuple(slice(None) if d in (dx, dy) else indices[d] for d in range(arr.ndim))
+        img = arr[sl]
+        if dy > dx:
+            img = img.T  # rows = dim_y, columns = dim_x
+        if fx:
+            img = img[:, ::-1]
+        if fy:
+            img = img[::-1, :]
+        return float(img[y0:y1 + 1, x0:x1 + 1].mean())
+
+    def _drag_rect(self, page, box, a=(0.2, 0.25), b=(0.45, 0.6)):
+        page.mouse.move(box["x"] + box["width"] * a[0], box["y"] + box["height"] * a[1])
+        page.mouse.down()
+        page.mouse.move(box["x"] + box["width"] * b[0], box["y"] + box["height"] * b[1], steps=8)
+        page.mouse.up()
+
+    def test_roi_numbers_in_ortho_panes_come_from_that_pane(self, loaded_viewer, client, tmp_path):
+        from conftest import register_array
+
+        arr = np.random.default_rng(11).random((18, 30, 44)).astype(np.float32)
+        page = loaded_viewer(register_array(client, arr, tmp_path, "orthoroi"))
+        page.set_viewport_size({"width": 1400, "height": 900})
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_function("() => multiViewActive && mvViews.every(v => v.lastW)", timeout=8_000)
+        page.wait_for_timeout(600)
+        page.mouse.move(5, 5)
+        page.keyboard.press("i")
+        page.wait_for_function("() => rectRoiMode", timeout=3_000)
+        page.evaluate("_roiSetShape('rect')")
+        n = page.evaluate("() => mvViews.length")
+        for k in range(n):
+            box = page.evaluate(f"() => {{ const r = mvViews[{k}].canvas.getBoundingClientRect(); return {{x: r.left, y: r.top, width: r.width, height: r.height}}; }}")
+            self._drag_rect(page, box)
+            page.wait_for_function(f"() => _rois.length === {k + 1} && _rois[{k}].stats", timeout=5_000)
+            page.wait_for_timeout(300)
+            r = page.evaluate(f"""() => {{ const r = _rois[{k}], v = mvViews.find(v => v.dimX === r.mvDimX && v.dimY === r.mvDimY);
+                return {{ind: indices.slice(), dx: v.dimX, dy: v.dimY, fx: _mvFlipX(v), fy: _mvFlipY(v), x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1, mean: r.stats.mean}}; }}""")
+            want = self._rect_mean(arr, r["ind"], r["dx"], r["dy"], r["fx"], r["fy"], r["x0"], r["y0"], r["x1"], r["y1"])
+            assert abs(r["mean"] - want) < 1e-4, (k, r, want)
+
+        # t and r on a pane turn its ROI with it: same voxels, same number.
+        before = page.evaluate("() => _rois.map(r => r.stats.mean)")
+        box = page.evaluate("() => { const r = mvViews[1].canvas.getBoundingClientRect(); return {x: r.left, y: r.top, width: r.width, height: r.height}; }")
+        for key in ("t", "r"):
+            page.mouse.move(box["x"] + box["width"] * 0.9, box["y"] + box["height"] * 0.1)
+            page.keyboard.press(key)
+            page.wait_for_timeout(900)
+            page.wait_for_function("() => _rois.length === 3 && _rois.every(r => r.stats)", timeout=5_000)
+            after = page.evaluate("() => _rois.map(r => r.stats.mean)")
+            assert all(abs(a - b) < 1e-4 for a, b in zip(before, after)), (key, before, after)
+
+    def test_roi_numbers_in_qmri_follow_mirroring(self, loaded_viewer, client, tmp_path):
+        from conftest import register_array
+
+        arr = np.random.default_rng(12).random((3, 8, 30, 44)).astype(np.float32)
+        page = loaded_viewer(register_array(client, arr, tmp_path, "qmriroi"))
+        page.set_viewport_size({"width": 1400, "height": 900})
+        _focus_kb(page)
+        page.evaluate("() => { activeDim = 0; renderInfo(); }")
+        page.keyboard.press("q")
+        page.wait_for_timeout(400)
+        if not page.evaluate("() => qmriActive"):
+            page.keyboard.press("q")
+        page.wait_for_function("() => qmriActive && qmriViews.every(v => v.lastW)", timeout=8_000)
+        page.evaluate("() => { flip_x = true; qmriViews.forEach(v => qvDrawFrame(v)); }")
+        page.wait_for_timeout(500)
+        page.mouse.move(5, 5)
+        page.keyboard.press("i")
+        page.wait_for_function("() => rectRoiMode", timeout=3_000)
+        page.evaluate("_roiSetShape('rect')")
+        box = page.evaluate("() => { const r = qmriViews[1].canvas.getBoundingClientRect(); return {x: r.left, y: r.top, width: r.width, height: r.height}; }")
+        self._drag_rect(page, box)
+        page.wait_for_function("() => _rois.length === 1 && (_rois[0].qmriStats || []).length === 3", timeout=5_000)
+        r = page.evaluate("""() => ({ind: indices.slice(), qd: qmriDim, dx: dim_x, dy: dim_y, fx: flip_x, fy: flip_y,
+            x0: _rois[0].x0, y0: _rois[0].y0, x1: _rois[0].x1, y1: _rois[0].y1,
+            q: _rois[0].qmriStats.map(q => [q.qmriIdx, q.stats.mean])})""")
+        for qi, mean in r["q"]:
+            ind = list(r["ind"]); ind[r["qd"]] = qi
+            want = self._rect_mean(arr, ind, r["dx"], r["dy"], r["fx"], r["fy"], r["x0"], r["y0"], r["x1"], r["y1"])
+            assert abs(mean - want) < 1e-4, (qi, mean, want)
+
     def test_roi_outline_follows_pinch_zoom(self, loaded_viewer, sid_3d):
         # The outline canvas must resize with every zoom step, not only on
         # the next render.

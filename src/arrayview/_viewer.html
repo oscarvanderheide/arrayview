@@ -9541,7 +9541,7 @@
             if (wasSliceActive) activeDim = current_slice_dim;
             if (projectionMode > 0) projectionDim = current_slice_dim;
             if (beforeRender) beforeRender();
-            _roiClearOnDimChange();
+            _roiOnViewChange();
             if (qmriActive || compareQmriActive) qvScaleAllCanvases();
             updateView();
             if (!qmriActive && !compareQmriActive) triggerPreload();
@@ -9727,7 +9727,8 @@
          *  axis swaps like t; a slice dim rolls the box like o. Other tiles
          *  (a mosaic dim, or a mosaic mirroring) crossfade.
          *  `change` does the state change and the repaint. */
-        function _axisAssignAround(axis, change) {
+        function _axisAssignAround(axis, change0) {
+            const change = () => { change0(); _roiOnViewChange(); };
             const boxes = () => _mosaicTurnTiles() || [...document.querySelectorAll('#canvas-viewport, .compare-canvas-clip, .qv-canvas-clip')];
             const same = axis === 'x' ? dim_x : dim_y, other = axis === 'x' ? dim_y : dim_x;
             const mosaic = dim_z >= 0 || qmriMosaicActive;
@@ -20434,11 +20435,88 @@
         }
         window._roiClearAll = _roiClearAll;
 
-        function _roiClearOnDimChange() {
+        // ── ROIs follow the view ──────────────────────────────────────────
+        // Each ROI remembers the view it was drawn in: `frame` = {dx, dy, fx,
+        // fy}, the array dims on screen x / y and whether each is mirrored.
+        // When the view changes and the ROI's two dims are still on screen
+        // (t, r, x / y, mirroring) it moves with its pixels. When its plane
+        // left the screen (o, a slice dim moved onto x / y) it is kept but
+        // hidden and not measured, and comes back with that plane.
+        // Ortho pane ROIs (mvDimX / mvDimY) follow the pane showing their dims.
+        function _roiViewFrame() { return { dx: dim_x, dy: dim_y, fx: !!flip_x, fy: !!flip_y }; }
+        function _roiMvFrame(v) { return { dx: v.dimX, dy: v.dimY, fx: _mvFlipX(v), fy: _mvFlipY(v) }; }
+        function _roiSamePlane(a, b) {
+            return !!(a && b) && ((a.dx === b.dx && a.dy === b.dy) || (a.dx === b.dy && a.dy === b.dx));
+        }
+        // Main-view ROI whose plane is not on screen now.
+        function _roiOffPlane(r) {
+            return !!(r && r.frame && !_roiIsMvPaneRoi(r) && !_roiSamePlane(r.frame, _roiViewFrame()));
+        }
+        function _roiMapPoint(px, py, from, to) {
+            const a = from.fx ? shape[from.dx] - 1 - px : px; // index along from.dx
+            const b = from.fy ? shape[from.dy] - 1 - py : py; // index along from.dy
+            const vx = to.dx === from.dx ? a : b, vy = to.dy === from.dy ? b : a;
+            return [to.fx ? shape[to.dx] - 1 - vx : vx, to.fy ? shape[to.dy] - 1 - vy : vy];
+        }
+        function _roiMoveToFrame(r, from, to) {
+            if (r.type === 'floodfill') {
+                // Masks are in data space: only a swap of x / y moves them.
+                if (to.dx === from.dx) return;
+                const fn = (px, py) => [py, px];
+                if (r.bbox && r.mask_b64) {
+                    const res = _roiTransformMask(r.bbox, r.mask_b64, fn);
+                    if (res) { r.bbox = res.bbox; r.mask_b64 = res.mask_b64; }
+                }
+                for (const sl of (Array.isArray(r.slices) ? r.slices : [])) {
+                    if (!sl || !sl.bbox || !sl.mask_b64) continue;
+                    const res = _roiTransformMask(sl.bbox, sl.mask_b64, fn);
+                    if (res) { sl.bbox = res.bbox; sl.mask_b64 = res.mask_b64; }
+                }
+                if (Number.isInteger(r.dimX) && Number.isInteger(r.dimY)) [r.dimX, r.dimY] = [r.dimY, r.dimX];
+                return;
+            }
+            const fn = (px, py) => _roiMapPoint(px, py, from, to);
+            if (r.type === 'rect') {
+                const [a0, b0] = fn(r.x0, r.y0), [a1, b1] = fn(r.x1, r.y1);
+                r.x0 = Math.round(Math.min(a0, a1)); r.y0 = Math.round(Math.min(b0, b1));
+                r.x1 = Math.round(Math.max(a0, a1)); r.y1 = Math.round(Math.max(b0, b1));
+            } else if (r.type === 'circle') {
+                const [ncx, ncy] = fn(r.cx, r.cy);
+                r.cx = Math.round(ncx); r.cy = Math.round(ncy);
+            } else if (r.type === 'freehand' && r.points) {
+                r.points = r.points.map(pt => fn(pt[0], pt[1]).map(Math.round));
+            }
+        }
+        function _roiFollowView() {
+            let moved = false;
+            for (const r of _rois) {
+                if (!r || (r.type === 'floodfill' && r.mask3d_b64)) continue;
+                let to;
+                if (_roiIsMvPaneRoi(r)) {
+                    if (!multiViewActive) continue;
+                    const v = mvViews.find(v => v && _roiSamePlane({ dx: r.mvDimX, dy: r.mvDimY }, { dx: v.dimX, dy: v.dimY }));
+                    if (!v) continue;
+                    to = _roiMvFrame(v);
+                } else {
+                    if (multiViewActive) continue;
+                    to = _roiViewFrame();
+                }
+                const from = r.frame;
+                if (!from) { r.frame = to; continue; }
+                if (from.dx === to.dx && from.dy === to.dy && from.fx === to.fx && from.fy === to.fy) continue;
+                if (!_roiSamePlane(from, to)) continue; // other plane: hidden until it is back
+                _roiMoveToFrame(r, from, to);
+                r.frame = to;
+                if (_roiIsMvPaneRoi(r)) { r.mvDimX = to.dx; r.mvDimY = to.dy; }
+                r.stats = null; r.qmriStats = null; r.paneStats = null;
+                moved = true;
+            }
+            if (moved) _scheduleRoiStatsRefresh();
+            return moved;
+        }
+        // Any change of what is on screen x / y (o, t, r, x / y, mirroring).
+        function _roiOnViewChange() {
             if (!_rois.length) return;
-            _rois = [];
-            _roiNames = {};
-            _selectedRoiIdx = -1;
             _redrawRoiOverlays();
             _updateRoiPanel();
         }
@@ -20471,46 +20549,6 @@
             let bin = '';
             for (let i = 0; i < newBytes.length; i++) bin += String.fromCharCode(newBytes[i]);
             return { bbox: { x0: nx0, y0: ny0, x1: nx1, y1: ny1 }, mask_b64: btoa(bin) };
-        }
-
-        function _roiTransformAll(fn, swapDims) {
-            if (!_rois.length) return;
-            for (const r of _rois) {
-                if (!r) continue;
-                if (r.type === 'rect') {
-                    const [a0, b0] = fn(r.x0, r.y0);
-                    const [a1, b1] = fn(r.x1, r.y1);
-                    r.x0 = Math.round(Math.min(a0, a1)); r.y0 = Math.round(Math.min(b0, b1));
-                    r.x1 = Math.round(Math.max(a0, a1)); r.y1 = Math.round(Math.max(b0, b1));
-                } else if (r.type === 'circle') {
-                    const [ncx, ncy] = fn(r.cx, r.cy);
-                    r.cx = Math.round(ncx); r.cy = Math.round(ncy);
-                } else if (r.type === 'freehand' && r.points) {
-                    r.points = r.points.map(p => {
-                        const [nx, ny] = fn(p[0], p[1]);
-                        return [Math.round(nx), Math.round(ny)];
-                    });
-                } else if (r.type === 'floodfill' && r.bbox && r.mask_b64) {
-                    const res = _roiTransformMask(r.bbox, r.mask_b64, fn);
-                    if (res) { r.bbox = res.bbox; r.mask_b64 = res.mask_b64; }
-                    if (Array.isArray(r.slices)) {
-                        for (const s of r.slices) {
-                            if (s && s.bbox && s.mask_b64) {
-                                const sr = _roiTransformMask(s.bbox, s.mask_b64, fn);
-                                if (sr) { s.bbox = sr.bbox; s.mask_b64 = sr.mask_b64; }
-                            }
-                        }
-                    }
-                    if (swapDims) {
-                        if (Number.isInteger(r.dimX) && Number.isInteger(r.dimY)) { const t = r.dimX; r.dimX = r.dimY; r.dimY = t; }
-                        if (Number.isInteger(r.mvDimX) && Number.isInteger(r.mvDimY)) { const t = r.mvDimX; r.mvDimX = r.mvDimY; r.mvDimY = t; }
-                    }
-                }
-                r.stats = null;
-                r.qmriStats = null;
-            }
-            _redrawRoiOverlays();
-            _updateRoiPanel();
         }
 
         function _ensureToolRailVisible() {
@@ -21206,8 +21244,9 @@
                 const stats = panes.length ? null : perRoi[i][0];
                 const name = _roiName(i);
                 const open = _roiHudExpanded.has(i);
-                html += `<tr class="roi-hud-row${r.visible === false ? ' off' : ''}${open ? ' open' : ''}" data-roi-idx="${i}" tabindex="0" aria-expanded="${open}" aria-label="ROI ${_roiHtmlEscape(name)}" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}">`
-                    + `<td class="roi-hud-namecell">${_ROI_SHAPE_ICONS[r.type] ? `<span class="roi-hud-swatch roi-hud-shape" title="${_roiShapeLabel(r.type)}">${_ROI_SHAPE_ICONS[r.type]}</span>` : '<span class="roi-hud-swatch"></span>'}<span class="roi-hud-name" title="${_roiHtmlEscape(name)} · double-click to rename">${_roiHtmlEscape(name)}</span></td>`
+                const away = _roiOffPlane(r);
+                html += `<tr class="roi-hud-row${r.visible === false || away ? ' off' : ''}${open ? ' open' : ''}" data-roi-idx="${i}" tabindex="0" aria-expanded="${open}" aria-label="ROI ${_roiHtmlEscape(name)}" style="--roi-color:${_roiColors[i % _roiColors.length].stroke}">`
+                    + `<td class="roi-hud-namecell">${_ROI_SHAPE_ICONS[r.type] ? `<span class="roi-hud-swatch roi-hud-shape" title="${_roiShapeLabel(r.type)}">${_ROI_SHAPE_ICONS[r.type]}</span>` : '<span class="roi-hud-swatch"></span>'}<span class="roi-hud-name" title="${_roiHtmlEscape(name)}${away ? ' · drawn in another view (o brings it back)' : ''} · double-click to rename">${_roiHtmlEscape(name)}</span></td>`
                     + (panes.length ? '<td class="roi-hud-num"></td>'
                         : `<td class="roi-hud-num" title="${_roiStatsFmt(stats?.mean)} ± ${_roiStatsFmt(stats?.std)}">${measures(stats)}</td>`)
                     + `<td class="roi-hud-act"><button type="button" class="roi-hud-delete" aria-label="Delete ROI ${_roiHtmlEscape(name)}" title="Delete ROI (Backspace)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M3 4h10M6 4V2h4v2M4 4l.6 10h6.8L12 4M6.5 6v6M9.5 6v6"/></svg></button></td></tr>`;
@@ -21483,6 +21522,12 @@
             if (!roi.scope) roi.scope = _roiCurrentScope();
             if (roi.visible === undefined) roi.visible = true;
             if (roi.selected === undefined) roi.selected = false;
+            if (!roi.frame) {
+                if (_roiIsMvPaneRoi(roi)) {
+                    const v = multiViewActive && mvViews.find(v => v && v.dimX === roi.mvDimX && v.dimY === roi.mvDimY);
+                    if (v) roi.frame = _roiMvFrame(v);
+                } else roi.frame = _roiViewFrame();
+            }
             return roi;
         }
 
@@ -21629,10 +21674,12 @@
             return r;
         }
 
+        // `opts.frame`: the view the shapes are drawn in (default: the main view).
         function _roiPayload(rois = _rois, opts = {}) {
-            const w = shape[dim_x] || 0, h = shape[dim_y] || 0;
-            return rois.filter(r => r && r.visible !== false).map((r, i) => {
-                const u = _roiUnflipForServer(r, w, h, flip_x, flip_y);
+            const fr = opts.frame || _roiViewFrame();
+            const w = shape[fr.dx] || 0, h = shape[fr.dy] || 0;
+            return rois.filter(r => r && r.visible !== false && (opts.frame || !_roiOffPlane(r))).map((r, i) => {
+                const u = _roiUnflipForServer(r, w, h, fr.fx, fr.fy);
                 return {
                     id: r.id || `roi-${i + 1}`,
                     name: r.name || `ROI ${i + 1}`,
@@ -21661,15 +21708,23 @@
             if (!roi) return;
             if (qmriActive) { _fetchQvRoiStats(idx); return; }
             if (compareActive) { _fetchCompareRoiStats(idx); return; }
+            // An ortho pane ROI is measured on its own pane's plane.
+            let frame = null;
+            if (_roiIsMvPaneRoi(roi)) {
+                const v = multiViewActive && mvViews.find(v => _roiMatchesMvView(roi, v));
+                if (!v) return;
+                frame = _roiMvFrame(v);
+            }
             try {
+                const fr = frame || _roiViewFrame();
                 const resp = await proxyFetch(`/roi_stats/${sid}`, {
                     method: 'POST',
                     headers: {'Content-Type':'application/json'},
                     body: JSON.stringify({
-                        dim_x, dim_y,
+                        dim_x: fr.dx, dim_y: fr.dy,
                         indices: indices.slice(),
                         complex_mode: complexMode,
-                        rois: _roiPayload([roi], { currentIndices: true }),
+                        rois: _roiPayload([roi], { currentIndices: true, frame }),
                     }),
                 });
                 const data = await resp.json();
@@ -21786,7 +21841,7 @@
                 _roiStatsRefreshTimer = null;
                 if (!rectRoiMode || !_rois.length) return;
                 _rois.forEach((r, i) => {
-                    if (r && r.visible !== false) _roiFetchStructuredStats(i);
+                    if (r && r.visible !== false && !_roiOffPlane(r)) _roiFetchStructuredStats(i);
                 });
             }, 120);
         }
@@ -29163,6 +29218,7 @@
             // no longer match the plane the 3D region was grown on, and when
             // the grown region has no voxels on the current scroll position.
             if (!r || r.visible === false) return false;
+            if (_roiOffPlane(r)) return false;
             if (r.type === 'floodfill') {
                 if (Number.isInteger(r.dimX) && r.dimX !== dim_x) return false;
                 if (Number.isInteger(r.dimY) && r.dimY !== dim_y) return false;
@@ -29986,6 +30042,7 @@
             }
         }
         function _redrawRoiOverlays(previewRoi) {
+            _roiFollowView();
             _reconcileRoiHud();
             if (compareActive) _drawAllCompareRois(previewRoi);
             else if (multiViewActive && mvViews.length) _drawAllMvRois(previewRoi);
@@ -30054,27 +30111,29 @@
         function _fetchQvRoiStats(roiIdx) {
             const roi = _rois[roiIdx];
             if (!roi || !qmriActive) return;
+            const payload = _roiPayload([Object.assign({}, roi, { visible: true })], { currentIndices: true })[0];
+            if (!payload) return;
+            const token = roi._qmriStatsToken = (roi._qmriStatsToken || 0) + 1;
             const promises = qmriViews.map(v => {
                 const qIndices = [...indices];
                 qIndices[qmriDim] = v.qmriIdx;
-                const indStr = qIndices.join(',');
-                if (roi.type === 'circle') {
-                    return proxyFetch(`/roi_circle/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indStr}&cx=${roi.cx}&cy=${roi.cy}&r=${roi.r}&complex_mode=${complexMode}`)
-                        .then(r => r.json()).then(d => ({ colormap: v.colormap, qmriIdx: v.qmriIdx, stats: d.error ? null : d }));
-                } else if (roi.type === 'freehand') {
-                    return proxyFetch(`/roi_freehand/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indStr}&complex_mode=${complexMode}`, {
-                        method: 'POST', headers: {'Content-Type':'application/json'},
-                        body: JSON.stringify({points: roi.points.map(p => [Math.round(p[0]), Math.round(p[1])])})
-                    }).then(r => r.json()).then(d => ({ colormap: v.colormap, qmriIdx: v.qmriIdx, stats: d.error ? null : d }));
-                } else {
-                    return proxyFetch(`/roi/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indStr}&x0=${roi.x0}&y0=${roi.y0}&x1=${roi.x1}&y1=${roi.y1}&complex_mode=${complexMode}`)
-                        .then(r => r.json()).then(d => ({ colormap: v.colormap, qmriIdx: v.qmriIdx, stats: d.error ? null : d }));
-                }
+                return proxyFetch(`/roi_stats/${sid}`, {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({
+                        dim_x, dim_y,
+                        indices: qIndices,
+                        complex_mode: complexMode,
+                        rois: [Object.assign({}, payload, { scope: { indices: qIndices, broadcast_dims: [], values: {} } })],
+                    }),
+                }).then(r => r.json())
+                    .then(d => ({ colormap: v.colormap, qmriIdx: v.qmriIdx, stats: (d.results && d.results[0] && d.results[0].stats) || null }))
+                    .catch(() => ({ colormap: v.colormap, qmriIdx: v.qmriIdx, stats: null }));
             });
             Promise.all(promises).then(results => {
-                if (!_rois[roiIdx]) return;
-                _rois[roiIdx].qmriStats = results.filter(r => r.stats);
-                if (results.length && results[0].stats) _rois[roiIdx].stats = results[0].stats;
+                if (_rois[roiIdx] !== roi || roi._qmriStatsToken !== token) return;
+                roi.qmriStats = results.filter(r => r.stats);
+                if (results.length && results[0].stats) roi.stats = results[0].stats;
                 _updateRoiPanel();
             });
         }
@@ -31841,7 +31900,7 @@
                             _orthoT.renderOne(v);
                         }
                         showStatus('transposed pane x/y');
-                        _roiClearOnDimChange();
+                        _roiOnViewChange();
                         if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
                         renderInfo(); saveState();
                         return;
@@ -31849,7 +31908,6 @@
                     const wasMosaic = dim_z >= 0;
                     const _adOnX = activeDim === dim_x;
                     const _adOnY = activeDim === dim_y;
-                    _roiTransformAll((px, py) => [py, px], true);
                     [dim_x, dim_y] = [dim_y, dim_x];
                     [flip_x, flip_y] = [flip_y, flip_x];
                     if (_adOnX) activeDim = dim_x;
@@ -31857,6 +31915,7 @@
                     if (!wasMosaic) { dim_z = -1; dim_z2 = -1; }
                     updateView(); triggerPreload();
                     showStatus(wasMosaic ? 'transposed x/y (mosaic)' : 'transposed x/y');
+                    _roiOnViewChange();
                     if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
                     renderInfo(); saveState();
                     }, _flipBoxes, 'flip', null, 1, true);
@@ -31881,17 +31940,15 @@
                             _orthoR.renderOne(v);
                         }
                         showStatus('rotated pane 90°');
-                        _roiClearOnDimChange();
+                        _roiOnViewChange();
                         renderInfo(); saveState();
                     } else {
                         const [odx, ody, ofx, ofy] = [dim_x, dim_y, flip_x, flip_y];
-                        const _w = canvas.width;
-                        _roiTransformAll((px, py) => [py, _w - 1 - px], true);
                         dim_x = ody; dim_y = odx; flip_x = ofy; flip_y = !ofx;
                         if (activeDim === odx) activeDim = dim_x;
                         else if (activeDim === ody) activeDim = dim_y;
                         updateView(); triggerPreload();
-                        renderInfo();
+                        renderInfo(); _roiOnViewChange();
                         showStatus('rotated 90°'); saveState();
                     }
                     if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
@@ -32602,7 +32659,7 @@
                         }
                         if (qmriActive || compareQmriActive) qvScaleAllCanvases();
                         updateView();
-                        _roiClearOnDimChange();
+                        _roiOnViewChange();
                         if (!qmriActive && !compareQmriActive) triggerPreload();
                         // Crop's readout_dim follows screen-axis rebinding.
                         if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
@@ -32811,7 +32868,7 @@
                         }
                         if (qmriActive || compareQmriActive) qvScaleAllCanvases();
                         updateView();
-                        _roiClearOnDimChange();
+                        _roiOnViewChange();
                         if (!qmriActive && !compareQmriActive) triggerPreload();
                         // Crop's readout_dim follows screen-axis rebinding.
                         if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
@@ -46301,7 +46358,7 @@
                     [dim_x, dim_y] = [dim_y, dim_x];
                     dim_z = -1; dim_z2 = -1;
                     activeDim = d === dim_x ? dim_x : dim_y; // stay on the clicked label
-                    updateView(); _roiClearOnDimChange(); triggerPreload(); return;
+                    updateView(); _roiOnViewChange(); triggerPreload(); return;
                 }
             }
             if (d !== VFIELD_T_DIM && d !== dim_x && d !== dim_y && !_isMosaicDim(d)) {
