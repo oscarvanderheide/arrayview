@@ -1358,6 +1358,19 @@ async function _fastLoadViaDaemon(filePath, title) {
             log(`FASTLOAD: no daemon on port ${port}`);
             return false;
         }
+        // On a shared machine localhost:8000 can be another user's ArrayView,
+        // or a port forward to one on a different host.  Never hand our files
+        // to a server we do not own.
+        const ownUid = typeof process.getuid === 'function' ? process.getuid() : null;
+        if (ownUid !== null && typeof pingPayload.uid === 'number' && pingPayload.uid !== ownUid) {
+            log(`FASTLOAD: port ${port} belongs to another user (uid ${pingPayload.uid}); not using it`);
+            return false;
+        }
+        if (typeof pingPayload.hostname === 'string' && pingPayload.hostname
+            && pingPayload.hostname !== OWN_HOST) {
+            log(`FASTLOAD: port ${port} is a server on ${pingPayload.hostname}; not using it`);
+            return false;
+        }
         serverId = pingPayload.instance_id;
     } catch (_) {
         return false;
