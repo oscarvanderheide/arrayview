@@ -45,3 +45,40 @@ def test_foreign_host_registration_is_ignored_and_kept(tmp_path, monkeypatch):
     legacy_dead = _write(signal_dir, "legacy", pid=2**22 + 7)
     _cleanup_zombie_registrations()
     assert not legacy_dead.exists()
+
+
+def test_remote_vscode_skips_port_held_by_something_else():
+    """A stale forward on 8000 (another user's) must not block a remote launch."""
+    from arrayview._launch_plan import (
+        Environment,
+        Invocation,
+        LaunchEnvironmentSnapshot,
+        LaunchIntent,
+        ServerSnapshot,
+        plan_launch,
+    )
+
+    facts = LaunchEnvironmentSnapshot(
+        invocation=Invocation.CLI,
+        requested_window="vscode",
+        environment=Environment.VSCODE_REMOTE,
+        platform="linux",
+        env_vars={},
+        config_default=None,
+        native_backend=None,
+        server=ServerSnapshot(8000, True, False),
+        in_jupyter=False,
+        in_julia=False,
+        in_vscode_terminal=True,
+        is_vscode_remote=True,
+        in_vscode_tunnel=False,
+        ssh_connection=True,
+        ssh_client=True,
+        hostname="roodnoot",
+    )
+    plan = plan_launch(
+        LaunchIntent(Invocation.CLI, 8000, requested_window="vscode"), facts
+    )
+    assert plan.ok
+    assert "scan_from_next_port" in plan.reasons
+    assert plan.effective_port == 8001

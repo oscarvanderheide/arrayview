@@ -390,12 +390,10 @@ def plan_launch(
         reasons.append("incompatible_server_new_port")
         server = ServerSnapshot(port, False, False)
 
+    # A remote VS Code window forwards whichever port the server ends up on,
+    # so a port held by something else (e.g. another user's stale forward on a
+    # shared host) is skipped exactly as it is locally.
     busy_foreign = server.port_busy and not server.arrayview_server_alive
-    if busy_foreign and environment is Environment.VSCODE_REMOTE:
-        return _failed_plan(
-            intent, facts, LaunchFailure.REMOTE_PORT_CONFLICT,
-            "remote_forwarding_requires_requested_port", effective_port=port,
-        )
     if busy_foreign:
         port += 1
         reasons.append("scan_from_next_port")
