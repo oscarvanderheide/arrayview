@@ -30795,17 +30795,16 @@
          *  down dim out wherever the selection is. A z mosaic is replaced.
          *  The selection stays where it is. */
         // Big mosaics: tiles shrink to specks and every tile must be read first.
-        // Over 32 tiles say how many; over 100 the first press only warns and the
-        // same press again within a few seconds goes ahead.
+        // Over `limit` (z 32 tiles, Shift+→ 6 across, Shift+↓ 4 down) the first
+        // press only warns; the same press again within a few seconds goes ahead.
         let _mosaicBigAsk = null;
-        function _mosaicSizeOk(n, key) {
-            if (n > 100 && !(_mosaicBigAsk && _mosaicBigAsk.key === key && Date.now() - _mosaicBigAsk.t < 4000)) {
+        function _mosaicSizeOk(n, limit, what, key) {
+            if (n > limit && !(_mosaicBigAsk && _mosaicBigAsk.key === key && Date.now() - _mosaicBigAsk.t < 4000)) {
                 _mosaicBigAsk = { key, t: Date.now() };
-                showStatus(`mosaic: ${n} tiles, will be slow and tiny — press again to go ahead`);
+                showStatus(`mosaic: ${n} ${what}, will be slow and small — press again to go ahead`);
                 return false;
             }
             _mosaicBigAsk = null;
-            if (n > 32) showStatus(`mosaic: ${n} tiles`);
             return true;
         }
 
@@ -30831,7 +30830,9 @@
                     else { if (d === across) across = down; down = d; }
                 }
             }
-            if (removed < 0 && !_mosaicSizeOk((across >= 0 ? shape[across] : 1) * (down >= 0 ? shape[down] : 1), `${dir}:${d}`)) return;
+            if (removed < 0 && !(dir === 'across'
+                ? _mosaicSizeOk(shape[across], 6, 'across', `${dir}:${d}`)
+                : _mosaicSizeOk(shape[down], 4, 'down', `${dir}:${d}`))) return;
             const commit = () => {
                 if (across >= 0 && down >= 0) { dim_z = across; dim_z2 = down; mosaicLayout = 'grid'; }
                 else if (across >= 0 || down >= 0) { dim_z = across >= 0 ? across : down; dim_z2 = -1; mosaicLayout = across >= 0 ? 'row' : 'col'; }
@@ -32231,7 +32232,7 @@
                         showStatus('mosaic: this dim is side by side — tap s for one image first');
                         return;
                     }
-                    if (dim_z < 0 && !_mosaicSizeOk(shape[current_slice_dim], `z:${current_slice_dim}`)) return;
+                    if (dim_z < 0 && !_mosaicSizeOk(shape[current_slice_dim], 32, 'tiles', `z:${current_slice_dim}`)) return;
                     _afterGlide(_mosaicToggle);
                 },
             },

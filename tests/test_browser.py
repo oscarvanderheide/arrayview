@@ -1060,7 +1060,7 @@ class TestKeyboard:
         stack_dir.mkdir()
         rng = np.random.default_rng(3)
         for name in ("alpha", "bravo", "charlie"):
-            np.save(stack_dir / f"{name}.npy", rng.random((32, 32, 5)).astype(np.float32))
+            np.save(stack_dir / f"{name}.npy", rng.random((32, 32, 4)).astype(np.float32))
         sid = client.post(
             "/load", json={"dir_patterns": [str(stack_dir / "*.npy")], "load": "lazy", "stack": "auto"}
         ).json()["sid"]
@@ -1091,8 +1091,10 @@ class TestKeyboard:
             "() => dim_z === collectionSpatialNdim && dim_z2 === 2 && mosaicLayout === 'grid'", timeout=5_000
         )
 
-    def test_mosaic_over_100_tiles_needs_second_press(self, loaded_viewer, client, tmp_path):
-        arr = np.random.default_rng(4).random((16, 16, 150)).astype(np.float32)
+    def test_big_mosaic_needs_second_press(self, loaded_viewer, client, tmp_path):
+        """z over 32 tiles, Shift+→ over 6 across, Shift+↓ over 4 down: the first
+        press only warns, the same press again goes ahead."""
+        arr = np.random.default_rng(4).random((16, 16, 40, 7, 5)).astype(np.float32)
         page = loaded_viewer(register_array(client, arr, tmp_path, "many_slices"))
         _focus_kb(page)
         page.evaluate("() => { current_slice_dim = 2; activeDim = 2; }")
@@ -1101,6 +1103,17 @@ class TestKeyboard:
         assert page.evaluate("() => dim_z") == -1
         page.keyboard.press("z")
         page.wait_for_function("() => dim_z === 2", timeout=10_000)
+        page.keyboard.press("z")
+        page.wait_for_function("() => dim_z < 0", timeout=10_000)
+        page.wait_for_timeout(500)
+        for key, dim, check in (("Shift+ArrowRight", 3, "dim_z === 3"), ("Shift+ArrowDown", 4, "dim_z2 === 4")):
+            page.evaluate(f"() => {{ activeDim = {dim}; }}")
+            page.keyboard.press(key)
+            page.wait_for_timeout(300)
+            assert not page.evaluate(f"() => {check}"), key
+            page.keyboard.press(key)
+            page.wait_for_function(f"() => {check}", timeout=10_000)
+            page.wait_for_timeout(500)
 
     def test_compare_entry_creates_side_by_side_view(
         self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
