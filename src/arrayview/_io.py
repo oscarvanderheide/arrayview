@@ -2242,18 +2242,24 @@ def _load_file_series(path, *, load="lazy", stack="auto"):
     # spellings produce the same session instead of one of them failing.
     if any(len(files) != 1 for files in patients.values()):
         flat = sorted(fpath for files in patients.values() for fpath in files)
-        return _series_from_file_matrix(
+        series, meta = _series_from_file_matrix(
             [[fpath] for fpath in flat], load=load, stack=stack
         )
+        series.case_names = _distinguishing_path_parts(flat)
+        return series, meta
 
     # NIfTI-only → preserve canonical reorientation + lazy dataobj slicing
+    # Label each case like --match does, so the viewer shows names, not 1..N.
+    first_files = [patients[pdir][0] for pdir in sorted(patients)]
     if all_nifti:
-        return _load_nifti_series(path, load=load, stack=stack)
-
-    # ── build file matrix ──────────────────────────────────────────
-    file_matrix = [[patients[pdir][0]] for pdir in sorted(patients)]
-
-    return _series_from_file_matrix(file_matrix, load=load, stack=stack)
+        series, meta = _load_nifti_series(path, load=load, stack=stack)
+    else:
+        # ── build file matrix ──────────────────────────────────────────
+        series, meta = _series_from_file_matrix(
+            [[f] for f in first_files], load=load, stack=stack
+        )
+    series.case_names = _distinguishing_path_parts(first_files)
+    return series, meta
 
 
 def _load_nifti_series(path, *, load="lazy", stack="auto"):
