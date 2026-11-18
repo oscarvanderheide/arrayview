@@ -30806,10 +30806,11 @@
         // runs out over the time a second press still counts.
         const _MOSAIC_ASK_MS = 3000;
         const _mosaicNote = { el: null, msg: null, timer: null, covered: [] };
-        function _mosaicNotice(title, hintHtml, drain = false) {
+        // `hints`: lines of HTML under the title (dim; <b> for keys).
+        function _mosaicNotice(title, hints, drain = false) {
             const m = _mosaicNote;
             clearTimeout(m.timer);
-            m.msg = { title, hintHtml, drain };
+            m.msg = { title, hints: [].concat(hints), drain };
             m.timer = setTimeout(() => { m.msg = null; _reconcileMosaicNotice(); }, _MOSAIC_ASK_MS);
             _reconcileMosaicNotice();
         }
@@ -30832,10 +30833,10 @@
                 document.body.appendChild(m.el);
             }
             const el = m.el;
-            el.innerHTML = '<div class="spread-picker__title"></div><div class="spread-picker__hint"></div>'
+            el.innerHTML = '<div class="spread-picker__title"></div>'
+                + m.msg.hints.map(h => `<div class="spread-picker__hint">${h}</div>`).join('')
                 + (m.msg.drain ? '<div class="mosaic-notice__drain"></div>' : '');
             el.children[0].textContent = m.msg.title;
-            el.children[1].innerHTML = m.msg.hintHtml;
             _spreadPickPlace(el);
             el.classList.add('is-visible');
             m.covered = _fadeChromeUnder(el);
@@ -30845,10 +30846,14 @@
         // Over `limit` (z 32 tiles, Shift+→ 6 across, Shift+↓ 4 down) the first
         // press only warns; the same press again while the line runs out goes ahead.
         let _mosaicBigAsk = null;
-        function _mosaicSizeOk(n, limit, title, keyName, key) {
+        // `total`: tiles the whole mosaic will have.
+        function _mosaicSizeOk(n, limit, title, total, keyName, key) {
             if (n > limit && !(_mosaicBigAsk && _mosaicBigAsk.key === key && Date.now() - _mosaicBigAsk.t < _MOSAIC_ASK_MS)) {
                 _mosaicBigAsk = { key, t: Date.now() };
-                _mosaicNotice(title, `small and slow · press <b>${keyName}</b> again`, true);
+                _mosaicNotice(`${title} is a lot`, [
+                    `every tile gets small, and all ${total} load before any show`,
+                    `<b>${keyName}</b> again to go ahead · <b>s</b> shows just a few`,
+                ], true);
                 return false;
             }
             if (_mosaicBigAsk) _mosaicNoticeHide();
@@ -30883,8 +30888,8 @@
                 }
             }
             if (removed < 0 && !(dir === 'across'
-                ? _mosaicSizeOk(shape[across], 6, `${shape[across]} tiles across`, 'Shift+→', `${dir}:${d}`)
-                : _mosaicSizeOk(shape[down], 4, `${shape[down]} rows down`, 'Shift+↓', `${dir}:${d}`))) return;
+                ? _mosaicSizeOk(shape[across], 6, `${shape[across]} tiles across`, shape[across] * (down >= 0 ? shape[down] : 1), 'Shift+→', `${dir}:${d}`)
+                : _mosaicSizeOk(shape[down], 4, `${shape[down]} rows down`, shape[down] * (across >= 0 ? shape[across] : 1), 'Shift+↓', `${dir}:${d}`))) return;
             const commit = () => {
                 if (across >= 0 && down >= 0) { dim_z = across; dim_z2 = down; mosaicLayout = 'grid'; }
                 else if (across >= 0 || down >= 0) { dim_z = across >= 0 ? across : down; dim_z2 = -1; mosaicLayout = across >= 0 ? 'row' : 'col'; }
@@ -32281,10 +32286,10 @@
                     }
                     // That dim is already one pane each: tiling it again repeats every pane.
                     if (dim_z < 0 && detachedDim >= 0 && current_slice_dim === detachedDim) {
-                        _mosaicNotice('already side by side', 'tap <b>s</b> for one image, then <b>z</b>');
+                        _mosaicNotice('already side by side', ['a mosaic here would repeat every pane', 'tap <b>s</b> for one image, then <b>z</b>']);
                         return;
                     }
-                    if (dim_z < 0 && !_mosaicSizeOk(shape[current_slice_dim], 32, `${shape[current_slice_dim]} tiles`, 'z', `z:${current_slice_dim}`)) return;
+                    if (dim_z < 0 && !_mosaicSizeOk(shape[current_slice_dim], 32, `${shape[current_slice_dim]} tiles`, shape[current_slice_dim], 'z', `z:${current_slice_dim}`)) return;
                     _afterGlide(_mosaicToggle);
                 },
             },
