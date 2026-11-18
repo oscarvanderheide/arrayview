@@ -5509,16 +5509,8 @@
             transition: opacity 0.12s ease-out, transform 0.2s cubic-bezier(0.34, 1.4, 0.64, 1);
         }
         .spread-picker__opts { position: relative; display: flex; gap: var(--sp-gap); }
-        /* Mosaic notice: same pill, title + hint, and a line that runs out while
-           a second press still counts. */
+        /* Mosaic notice: same pill, a title and dim hint lines. */
         .mosaic-notice { padding: 6px 8px 5px; gap: 2px; }
-        .mosaic-notice__drain {
-            align-self: stretch; height: 2px; margin: 3px 4px 0; border-radius: 1px;
-            background: color-mix(in srgb, var(--active-dim) 70%, transparent);
-            transform-origin: left center;
-            animation: mosaic-notice-drain 3s linear forwards;
-        }
-        @keyframes mosaic-notice-drain { from { transform: scaleX(1); } to { transform: scaleX(0); } }
         .spread-picker__hint {
             padding: 0 5px 2px;
             font-size: 9px; line-height: 1.3; letter-spacing: 0.01em; white-space: nowrap;
@@ -30802,16 +30794,16 @@
 
         // ── Mosaic notice ───────────────────────────────────────────
         // A pill like the pane count strip, at the bottom centre of the picture;
-        // the colour bar under it fades out while it is up. `drain`: a thin line
-        // runs out over the time a second press still counts.
-        const _MOSAIC_ASK_MS = 3000;
+        // the colour bar under it fades out while it is up. `ask`: it stays until
+        // answered (same key again, or Esc); otherwise it fades after a few seconds.
+        const _MOSAIC_NOTE_MS = 3000;
         const _mosaicNote = { el: null, msg: null, timer: null, covered: [] };
         // `hints`: lines of HTML under the title (dim; <b> for keys).
-        function _mosaicNotice(title, hints, drain = false) {
+        function _mosaicNotice(title, hints, ask = false) {
             const m = _mosaicNote;
             clearTimeout(m.timer);
-            m.msg = { title, hints: [].concat(hints), drain };
-            m.timer = setTimeout(() => { m.msg = null; _reconcileMosaicNotice(); }, _MOSAIC_ASK_MS);
+            m.msg = { title, hints: [].concat(hints) };
+            if (!ask) m.timer = setTimeout(() => { m.msg = null; _reconcileMosaicNotice(); }, _MOSAIC_NOTE_MS);
             _reconcileMosaicNotice();
         }
         function _mosaicNoticeHide() {
@@ -30834,8 +30826,7 @@
             }
             const el = m.el;
             el.innerHTML = '<div class="spread-picker__title"></div>'
-                + m.msg.hints.map(h => `<div class="spread-picker__hint">${h}</div>`).join('')
-                + (m.msg.drain ? '<div class="mosaic-notice__drain"></div>' : '');
+                + m.msg.hints.map(h => `<div class="spread-picker__hint">${h}</div>`).join('');
             el.children[0].textContent = m.msg.title;
             _spreadPickPlace(el);
             el.classList.add('is-visible');
@@ -30844,15 +30835,15 @@
 
         // Big mosaics: tiles shrink to specks and every tile must be read first.
         // Over `limit` (z 32 tiles, Shift+→ 6 across, Shift+↓ 4 down) the first
-        // press only warns; the same press again while the line runs out goes ahead.
+        // press only warns; the same press again goes ahead, Esc cancels.
         let _mosaicBigAsk = null;
         // `total`: tiles the whole mosaic will have.
         function _mosaicSizeOk(n, limit, title, total, keyName, key) {
-            if (n > limit && !(_mosaicBigAsk && _mosaicBigAsk.key === key && Date.now() - _mosaicBigAsk.t < _MOSAIC_ASK_MS)) {
-                _mosaicBigAsk = { key, t: Date.now() };
+            if (n > limit && _mosaicBigAsk?.key !== key) {
+                _mosaicBigAsk = { key };
                 _mosaicNotice(`${title} is a lot`, [
                     `every tile gets small, and all ${total} load before any show`,
-                    `<b>${keyName}</b> again to go ahead · <b>s</b> shows just a few`,
+                    `<b>${keyName}</b> again to go ahead · <b>Esc</b> to cancel · <b>s</b> shows just a few`,
                 ], true);
                 return false;
             }
@@ -36020,6 +36011,14 @@
                     return;
                 }
                 return;
+            }
+            // A big-mosaic warning is waiting for an answer: Esc cancels it; any
+            // other key but z / Shift+arrows drops it and does its own thing.
+            if (_mosaicBigAsk && !['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)
+                && !(e.key === 'z' || (e.shiftKey && e.key.startsWith('Arrow')))) {
+                _mosaicBigAsk = null;
+                _mosaicNoticeHide();
+                if (e.key === 'Escape') return;
             }
             // Plain s: a tap toggles side by side on release, a hold opens the
             // pane count picker. Where neither applies it goes on to the dispatcher.
