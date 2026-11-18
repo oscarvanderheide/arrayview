@@ -1348,33 +1348,85 @@ async function _coldStartPort(port, requestId, serverId, ttlMs) {
     };
 }
 
-async function _fastLoadViaDaemon(filePath, title) {
-    const port = 8000;
-    const pingUrl = `http://localhost:${port}/ping`;
-    let serverId = null;
+// Same directory rule as Python's _instance_registry.runtime_directory():
+// per user and per machine, so it only ever lists this user's servers here.
+function _instanceRegistryDir() {
+    if (process.env.ARRAYVIEW_RUNTIME_DIR) return process.env.ARRAYVIEW_RUNTIME_DIR;
+    if (process.env.XDG_RUNTIME_DIR) return path.join(process.env.XDG_RUNTIME_DIR, 'arrayview');
+    if (typeof process.getuid === 'function') return path.join(os.tmpdir(), `arrayview-${process.getuid()}`);
+    return null;
+}
+
+// Ports of this user's registered servers, oldest first; 8000 is tried first.
+function _ownServerPortCandidates() {
+    const candidates = [{ port: 8000, instanceId: null }];
+    const dir = _instanceRegistryDir();
+    if (!dir) return candidates;
+    const records = [];
     try {
-        const pingPayload = await httpJson(pingUrl, 1000);
-        if (!pingPayload || pingPayload.service !== 'arrayview' || !pingPayload.instance_id) {
-            log(`FASTLOAD: no daemon on port ${port}`);
-            return false;
+        const instances = path.join(dir, 'instances');
+        for (const f of fs.readdirSync(instances)) {
+            if (!f.endsWith('.json')) continue;
+            try {
+                const rec = JSON.parse(fs.readFileSync(path.join(instances, f), 'utf8'));
+                if (rec && Number.isInteger(rec.port) && rec.instance_id
+                    && rec.pid && isProcessAlive(rec.pid)) {
+                    records.push(rec);
+                }
+            } catch (_) {}
         }
-        // On a shared machine localhost:8000 can be another user's ArrayView,
-        // or a port forward to one on a different host.  Never hand our files
-        // to a server we do not own.
-        const ownUid = typeof process.getuid === 'function' ? process.getuid() : null;
-        if (ownUid !== null && typeof pingPayload.uid === 'number' && pingPayload.uid !== ownUid) {
-            log(`FASTLOAD: port ${port} belongs to another user (uid ${pingPayload.uid}); not using it`);
-            return false;
-        }
-        if (typeof pingPayload.hostname === 'string' && pingPayload.hostname
-            && pingPayload.hostname !== OWN_HOST) {
-            log(`FASTLOAD: port ${port} is a server on ${pingPayload.hostname}; not using it`);
-            return false;
-        }
-        serverId = pingPayload.instance_id;
-    } catch (_) {
-        return false;
+    } catch (_) {}
+    records.sort((a, b) => (a.started_at || 0) - (b.started_at || 0));
+    for (const rec of records) {
+        if (rec.port === 8000) candidates[0].instanceId = rec.instance_id;
+        else candidates.push({ port: rec.port, instanceId: rec.instance_id });
     }
+    return candidates;
+}
+
+// On a shared machine a port can hold another user's ArrayView, or a port
+// forward to one on a different host.  Never hand our files to a server we
+// do not own.  Returns the server's instance id, or null.
+async function _ownServerOnPort(port, expectedInstanceId) {
+    let pingPayload;
+    try {
+        pingPayload = await httpJson(`http://localhost:${port}/ping`, 1000);
+    } catch (_) {
+        return null;
+    }
+    if (!pingPayload || pingPayload.service !== 'arrayview' || !pingPayload.instance_id) {
+        log(`FASTLOAD: no daemon on port ${port}`);
+        return null;
+    }
+    const ownUid = typeof process.getuid === 'function' ? process.getuid() : null;
+    if (ownUid !== null && typeof pingPayload.uid === 'number' && pingPayload.uid !== ownUid) {
+        log(`FASTLOAD: port ${port} belongs to another user (uid ${pingPayload.uid}); not using it`);
+        return null;
+    }
+    if (typeof pingPayload.hostname === 'string' && pingPayload.hostname
+        && pingPayload.hostname !== OWN_HOST) {
+        log(`FASTLOAD: port ${port} is a server on ${pingPayload.hostname}; not using it`);
+        return null;
+    }
+    if (expectedInstanceId && pingPayload.instance_id !== expectedInstanceId) {
+        log(`FASTLOAD: port ${port} no longer holds the registered server`);
+        return null;
+    }
+    return pingPayload.instance_id;
+}
+
+async function _fastLoadViaDaemon(filePath, title) {
+    let port = null;
+    let serverId = null;
+    for (const candidate of _ownServerPortCandidates()) {
+        const found = await _ownServerOnPort(candidate.port, candidate.instanceId);
+        if (found) {
+            port = candidate.port;
+            serverId = found;
+            break;
+        }
+    }
+    if (!port) return false;
     const sid = crypto.randomBytes(16).toString('hex');
     const loadPayload = { filepath: filePath, name: title || path.basename(filePath), requested_sid: sid, background: true, release_on_disconnect: true };
     if (serverId) loadPayload.expected_server_id = serverId;
@@ -2775,6 +2827,39 @@ function _expireProtocolRequest(data, existingAck) {
     }
 }
 
+// Window ids whose terminals this window answers for (its own and the ids it
+// superseded on reload).  Set at activation.
+let ownWindowChain = [];
+const ORPHAN_CLAIM_MAX_AGE_MS = 60 * 60 * 1000;
+const STALE_TMP_MIN_AGE_MS = 60 * 1000;
+
+function _claimTargetWindowId(name) {
+    const match = /^open-request-(?:ipc|pid)-([0-9A-Za-z_-]+)\./.exec(name);
+    return match ? match[1] : null;
+}
+
+// ~/.arrayview may be shared with openers on other machines (network home).
+// Recovering or expiring a request is only safe for windows on this host:
+// another host's pid says nothing here, and failing its request breaks a
+// launch that is still in progress over there.
+function _mayRecoverClaim(name) {
+    const target = _claimTargetWindowId(name);
+    if (!target) return true;  // shared fallback file: any window may own it
+    if (target === logWindowId || ownWindowChain.includes(target)) return true;
+    try {
+        const reg = JSON.parse(fs.readFileSync(
+            path.join(SIGNAL_DIR, `window-${target}.json`), 'utf8'
+        ));
+        return Boolean(reg) && reg.host === OWN_HOST;
+    } catch (_) {
+        return false;
+    }
+}
+
+function _fileAgeMs(fullPath) {
+    try { return Date.now() - fs.statSync(fullPath).mtimeMs; } catch (_) { return 0; }
+}
+
 function cleanupStaleFiles() {
     // Recover or remove stale .claimed-* files left behind by crashes, and
     // remove incomplete .tmp files. Also remove window-*.json registration
@@ -2790,13 +2875,23 @@ function cleanupStaleFiles() {
         const files = fs.readdirSync(SIGNAL_DIR);
         for (const f of files) {
             if (f.startsWith('open-request-') && f.endsWith('.tmp')) {
-                try { fs.unlinkSync(path.join(SIGNAL_DIR, f)); log(`CLEANUP: removed stale tmp ${f}`); } catch (_) {}
+                // A young .tmp is a write in progress, possibly on another host.
+                const tmpPath = path.join(SIGNAL_DIR, f);
+                if (_fileAgeMs(tmpPath) < STALE_TMP_MIN_AGE_MS) continue;
+                try { fs.unlinkSync(tmpPath); log(`CLEANUP: removed stale tmp ${f}`); } catch (_) {}
                 continue;
             }
             if (f.startsWith('open-request-') && f.includes('.claimed-')) {
                 const fullPath = path.join(SIGNAL_DIR, f);
                 if (_activeClaimedFiles.has(fullPath)) {
                     log(`CLEANUP: retained in-flight claim ${f}`);
+                    continue;
+                }
+                if (!_mayRecoverClaim(f)) {
+                    // Not ours to judge.  Drop it only once it is long dead.
+                    if (_fileAgeMs(fullPath) > ORPHAN_CLAIM_MAX_AGE_MS) {
+                        try { fs.unlinkSync(fullPath); log(`CLEANUP: removed orphan claim ${f}`); } catch (_) {}
+                    }
                     continue;
                 }
                 try {
@@ -5040,6 +5135,7 @@ function activate(context) {
         }
     }
     const supersededIds = supersedes.slice(0, MAX_SUPERSEDED_WINDOW_IDS);
+    ownWindowChain = supersededIds.slice();
 
     try {
         envCollection.replace('ARRAYVIEW_WINDOW_ID', windowId);
@@ -5242,6 +5338,13 @@ module.exports = {
     activate,
     deactivate,
     __test: {
+        _mayRecoverClaim,
+        _ownServerPortCandidates,
+        isForeignRegistration,
+        cleanupStaleFiles,
+        setOwnWindowChain(ids) { ownWindowChain = ids; },
+        OWN_HOST,
+        SIGNAL_DIR,
         _withTimeout,
         _asExternalUriAttempt,
         probeArrayViewStatus,

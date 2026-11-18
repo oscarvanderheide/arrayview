@@ -1099,6 +1099,9 @@ def _planned_server_snapshot(launch_context, port: int):
     cli_default = launch_context.evidence.cli_default_server
     if cli_default is not None and cli_default.port == port:
         return cli_default
+    own = getattr(launch_context.evidence, "own_server", None)
+    if own is not None and own.port == port:
+        return own
     return expected
 
 
@@ -1195,6 +1198,18 @@ def _relay_array_to_server(
         raise RuntimeError(
             f"No transaction-compatible ArrayView relay found on "
             f"{relay_host}:{port}; update or restart the remote ArrayView server"
+        )
+    # A relay normally reaches the user's own server on another machine through
+    # a reverse tunnel.  A server on *this* machine owned by someone else is
+    # just another user's ArrayView on a shared port: never send it our data.
+    if (
+        hasattr(os, "geteuid")
+        and status.get("hostname") == socket.gethostname()
+        and isinstance(status.get("uid"), int)
+        and status.get("uid") != os.geteuid()
+    ):
+        raise RuntimeError(
+            f"Port {port} belongs to another user's ArrayView on this machine"
         )
     current_server_id = str(status["instance_id"])
     if expected_server_id is not None and expected_server_id != current_server_id:

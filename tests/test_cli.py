@@ -58,7 +58,7 @@ def _mock_launch_server_snapshot(monkeypatch, *, alive: bool, busy: bool | None 
             busy,
             alive,
             4242 if alive else None,
-            "test-host" if alive else None,
+            socket.gethostname() if alive else None,
             "existing-server" if alive else None,
             None,
             ("identity-fenced-load", "identity-fenced-mutations") if alive else (),

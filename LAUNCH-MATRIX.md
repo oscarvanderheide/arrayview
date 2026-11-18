@@ -52,6 +52,30 @@ that actually occur, not the cross-product.
 
 ## The table
 
+### 2026-11-18 shared machines and network homes (opener 0.15.78–0.15.80)
+
+Trigger: a colleague (Linux PC, NFS home also mounted on roodnoot) used Remote
+SSH into roodnoot while another user's VS Code on roodnoot forwarded port 8000
+to an ArrayView on a third machine. Every assumption that a port, a forward or
+`~/.arrayview` is private to one user on one machine failed.
+
+- Window registrations carry `host`; only their own host judges or deletes
+  them; the opener restores its registration if an older opener deletes it.
+- In-flight request recovery only touches this window's (or a same-host
+  window's) requests; young `.tmp` writes are left alone.
+- Explorer clicks only reuse a server with this uid and hostname, found via the
+  per-user instance registry, not "whatever is on 8000".
+- Python reuse requires same uid **and** hostname; with the requested port held
+  by someone else it reuses the user's own registered server.
+- Remote VS Code windows skip a foreign-held port like local ones (the old
+  "remote must keep the requested port" refusal is gone).
+- The SSH relay refuses another local user's server.
+
+Rows touched: 6, 21 (Remote SSH), tunnel rows, Explorer clicks (local and
+remote), plain-SSH relay. Evidence: `component` (planner, registry and opener
+unit tests). Real-host recheck: the colleague's setup after release.
+Still open: the server accepts any local user (no per-user secret).
+
 ### 2026-11-11 several arrays always open as one stack — CLI, Python, Julia, MATLAB
 
 Rows changed: every CLI row when several files come with `--overlay`,

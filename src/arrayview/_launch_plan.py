@@ -154,6 +154,9 @@ class LaunchEnvironmentSnapshot:
     ssh_client: bool
     hostname: str
     cli_default_server: ServerSnapshot | None = None
+    # This user's own reusable server on another port, found only when the
+    # requested port is held by something we cannot reuse (shared machines).
+    own_server: ServerSnapshot | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -379,13 +382,26 @@ def plan_launch(
         and intent.port == 8123
         and environment is Environment.VSCODE_REMOTE
         and facts.cli_default_server is not None
-        and _server_reusable(facts.cli_default_server)
+        and _server_reusable(facts.cli_default_server, facts.hostname)
     ):
         port = facts.cli_default_server.port
         server = facts.cli_default_server
         reasons.append("reuse_remote_cli_default_server")
 
-    if server.arrayview_server_alive and not _server_reusable(server):
+    if (
+        intent.invocation in {Invocation.CLI, Invocation.VSCODE_EXPLORER}
+        and server.port_busy
+        and not _server_reusable(server, facts.hostname)
+        and facts.own_server is not None
+        and _server_reusable(facts.own_server, facts.hostname)
+    ):
+        # The requested port belongs to someone else; our own server already
+        # runs elsewhere.  Reuse it rather than starting one more per launch.
+        port = facts.own_server.port
+        server = facts.own_server
+        reasons.append("reuse_own_server_on_other_port")
+
+    if server.arrayview_server_alive and not _server_reusable(server, facts.hostname):
         port += 1
         reasons.append("incompatible_server_new_port")
         server = ServerSnapshot(port, False, False)
@@ -398,7 +414,7 @@ def plan_launch(
         port += 1
         reasons.append("scan_from_next_port")
 
-    if _server_reusable(server):
+    if _server_reusable(server, facts.hostname):
         owner = ServerOwner.EXISTING
         registration = Registration.HTTP_LOAD
         reasons.append("reuse_compatible_server")
@@ -533,6 +549,7 @@ def snapshot_launch_environment(
     """Capture launch-relevant facts without importing the server stack."""
     inv = _coerce_invocation(invocation)
     env_vars = _snapshot_env_vars()
+    primary = _server_snapshot(port)
     in_jupyter = _platform_bool("_in_jupyter")
     in_julia = _platform_bool("_is_julia_env")
     in_vscode_terminal = _platform_bool("_in_vscode_terminal")
@@ -557,7 +574,7 @@ def snapshot_launch_environment(
         env_vars=env_vars,
         config_default=_config_window_default(environment.value),
         native_backend=_native_window_gui(),
-        server=_server_snapshot(port),
+        server=primary,
         in_jupyter=in_jupyter,
         in_julia=in_julia,
         in_vscode_terminal=in_vscode_terminal,
@@ -571,6 +588,11 @@ def snapshot_launch_environment(
             if inv is Invocation.PYTHON
             and environment is Environment.VSCODE_REMOTE
             and port == 8123
+            else None
+        ),
+        own_server=(
+            _own_server_snapshot(primary, socket.gethostname())
+            if inv in {Invocation.CLI, Invocation.VSCODE_EXPLORER}
             else None
         ),
     )
@@ -673,15 +695,51 @@ def _server_snapshot(port: int) -> ServerSnapshot:
     )
 
 
-def _server_reusable(server: ServerSnapshot) -> bool:
+def _own_server_snapshot(
+    primary: ServerSnapshot, hostname: str
+) -> ServerSnapshot | None:
+    """Find this user's reusable server when the requested port is not one.
+
+    The instance registry is per user and per machine, so it never lists
+    another user's server or one reached through a port forward.
+    """
+    if not primary.port_busy or _server_reusable(primary, hostname):
+        return None
+    try:
+        from arrayview._instance_registry import InstanceRegistry
+
+        records = InstanceRegistry().discover()
+    except Exception:
+        return None
+    for record in records:
+        if record.port == primary.port:
+            continue
+        snapshot = _server_snapshot(record.port)
+        if (
+            snapshot.server_instance_id == record.instance_id
+            and _server_reusable(snapshot, hostname)
+        ):
+            return snapshot
+    return None
+
+
+def _server_reusable(server: ServerSnapshot, hostname: str | None = None) -> bool:
     same_user = (
         server.server_uid == os.geteuid()
         if hasattr(os, "geteuid")
         else True
     )
+    # Same uid on another machine (shared accounts, port forwards) is not ours:
+    # it cannot open our file paths.
+    same_host = (
+        hostname is None
+        or server.server_hostname is None
+        or server.server_hostname == hostname
+    )
     return (
         server.arrayview_server_alive
         and same_user
+        and same_host
         and server.server_instance_id is not None
         and server.server_protocol_version == "1"
         and "identity-fenced-load" in server.server_capabilities
