@@ -20514,6 +20514,58 @@
             if (moved) _scheduleRoiStatsRefresh();
             return moved;
         }
+        // ── ROIs in a mosaic ──────────────────────────────────────────────
+        // A mosaic shows many slices of one plane as tiles. A ROI is stored
+        // in the coordinates of one tile (as in the single view), drawn on
+        // every tile, and measured on each tile's own slice.
+        function _roiMosaicActive() {
+            return dim_z >= 0 && !compareActive && !multiViewActive && !qmriActive && _mosaicGridPlain();
+        }
+        // Tiles as [{k, ox, oy, w, h}] in canvas pixels ([] when no mosaic).
+        function _roiMosaicTiles() {
+            if (!_roiMosaicActive()) return [];
+            const g = _mosaicGridInfo(), out = [];
+            for (let k = 0; k < g.n; k++) {
+                out.push({ k, ox: (k % g.cols) * (g.tileW + g.GAP), oy: Math.floor(k / g.cols) * (g.tileH + g.GAP), w: g.tileW, h: g.tileH });
+            }
+            return out;
+        }
+        function _roiMosaicTileAtCanvas(x, y) {
+            const g = _mosaicGridInfo();
+            const col = Math.min(g.cols - 1, Math.max(0, Math.floor(x / (g.tileW + g.GAP))));
+            const row = Math.min(g.rows - 1, Math.max(0, Math.floor(y / (g.tileH + g.GAP))));
+            return Math.min(g.n - 1, row * g.cols + col);
+        }
+        // One line of numbers per tile in the ROI panel.
+        function _roiMosaicPanes() {
+            if (!_roiMosaicActive()) return [];
+            const z2 = _mosaicDim2(), n = _mosaicGridInfo().n;
+            const pad = (v, d) => String(v + 1).padStart(String(shape[d]).length, '0');
+            const out = [];
+            for (let k = 0; k < n; k++) {
+                const t = _mosaicTileIndices(k);
+                out.push({ k, key: `t${k}`, indices: t, label: z2 >= 0 ? `${pad(t[dim_z], dim_z)} · ${pad(t[z2], z2)}` : pad(t[dim_z], dim_z) });
+            }
+            return out;
+        }
+        // Main canvas pointer → ROI coordinates. In ROI mode on a mosaic:
+        // inside one tile — the one under the pointer, or the tile the
+        // current gesture started on (`_roiMosaicTileLock`).
+        let _roiMosaicTileLock = -1;
+        function _roiMainPoint(e) {
+            const rect = canvas.getBoundingClientRect();
+            let x = (e.clientX - rect.left) * canvas.width / rect.width;
+            let y = (e.clientY - rect.top) * canvas.height / rect.height;
+            let k = -1;
+            if (rectRoiMode && _roiMosaicActive()) {
+                const g = _mosaicGridInfo();
+                k = _roiMosaicTileLock >= 0 ? _roiMosaicTileLock : _roiMosaicTileAtCanvas(x, y);
+                x -= (k % g.cols) * (g.tileW + g.GAP);
+                y -= Math.floor(k / g.cols) * (g.tileH + g.GAP);
+            }
+            return { x, y, k };
+        }
+
         // Any change of what is on screen x / y (o, t, r, x / y, mirroring).
         function _roiOnViewChange() {
             if (!_rois.length) return;
@@ -20637,7 +20689,7 @@
             if (compareMvActive || compareQmriActive) return 'not in 3-plane or qMRI rows';
             // A mosaic canvas holds many slices: a shape drawn on it spans
             // tiles and measures nothing.
-            if (!compareActive && !multiViewActive && !qmriActive && dim_z >= 0) return 'not in mosaic';
+            if (!compareActive && !multiViewActive && !qmriActive && dim_z >= 0 && !_mosaicGridPlain()) return 'not in mosaic';
             if (!compareActive) return '';
             const differ = 'the panes differ in size';
             // Arrays of different sizes shown side by side along their own dim.
@@ -20862,7 +20914,7 @@
                 ? `<div class="roi-hud-dist"><div class="roi-hud-dist-title">distribution</div>${plot}<div class="roi-hud-dist-axis"><span>${axisFmt(lo)}</span><span>${axisFmt(hi)}</span></div></div>`
                 : '';
             const line = s => `<span>n <b>${s.n ?? '—'}</b></span><span>min <b>${fmt(s.min)}</b></span><span>max <b>${fmt(s.max)}</b></span>`;
-            const panes = _roiComparePanes();
+            const panes = _roiComparePanes().length ? _roiComparePanes() : _roiMosaicPanes();
             if (panes.length) {
                 const lines = panes.map(p => [p, _roiPaneStat(r, p.key)]).filter(([, st]) => st);
                 if (!lines.length) return '<div class="roi-hud-detail-line">measuring…</div>';
@@ -20960,6 +21012,8 @@
         function _roiHudPanes() {
             const panes = _roiComparePanes();
             if (panes.length) return panes.map(p => ({ key: p.key, label: p.label, stat: r => _roiPaneStat(r, p.key) }));
+            const tiles = _roiMosaicPanes();
+            if (tiles.length) return tiles.map(p => ({ key: p.key, label: p.label, stat: r => _roiPaneStat(r, p.key) }));
             if (qmriActive && qmriViews.length) {
                 return qmriViews.map(v => ({
                     key: `q${v.qmriIdx}`, qmriIdx: v.qmriIdx,
@@ -21243,7 +21297,7 @@
             const hi = shown.length ? Math.max(...shown.map(st => st.max).filter(Number.isFinite)) : NaN;
             const copyIcon = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/></svg>';
             const dlIcon = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/></svg>';
-            const across = panes.length > 1 ? `in ${panes.length} ${qmriActive && !_roiComparePanes().length ? 'maps' : panes.some(p => p.key === 'diff') ? 'panes' : 'arrays'}` : '';
+            const across = panes.length > 1 ? `in ${panes.length} ${qmriActive && !_roiComparePanes().length ? 'maps' : panes.some(p => p.key === 'diff') ? 'panes' : _roiMosaicActive() ? 'tiles' : 'arrays'}` : '';
             let html = '<div class="roi-hud-head" title="Drag to move">'
                 + '<svg class="roi-hud-grip" viewBox="0 0 6 10" aria-hidden="true"><circle cx="1" cy="1" r="1"/><circle cx="5" cy="1" r="1"/><circle cx="1" cy="5" r="1"/><circle cx="5" cy="5" r="1"/><circle cx="1" cy="9" r="1"/><circle cx="5" cy="9" r="1"/></svg>'
                 + '<span class="roi-hud-title">ROIs</span>'
@@ -21351,6 +21405,17 @@
             } else if (qmriActive) {
                 const view = qmriViews.find(v => v.canvas === e.target);
                 if (view) { _setRoiHudHover(_roiHitIndexForCanvasEvent(e, view.canvas, view.lastW, view.lastH), view.qmriIdx); return; }
+            } else if (e.target === canvas && _roiMosaicActive()) {
+                // Mosaic: hit-test in tile coordinates; the tile goes along so
+                // the pill moves to the tile under the pointer.
+                const pt = _roiMainPoint(e);
+                let hit = -1;
+                for (let i = _rois.length - 1; i >= 0; i--) {
+                    const r = _rois[i];
+                    if (r && r.type !== 'floodfill' && !_roiIsMvPaneRoi(r) && _roiIsVisibleOnCurrentSlice(r) && _pointInRoi(r, pt.x, pt.y)) { hit = i; break; }
+                }
+                _setRoiHudHover(hit, `t${pt.k}`);
+                return;
             } else if (e.target === canvas) {
                 _setRoiHudHover(_roiHitIndexForCanvasEvent(e, canvas, canvas.width, canvas.height));
                 return;
@@ -21720,6 +21785,7 @@
             if (!roi) return;
             if (qmriActive) { _fetchQvRoiStats(idx); return; }
             if (compareActive) { _fetchCompareRoiStats(idx); return; }
+            if (_roiMosaicActive()) { _fetchMosaicRoiStats(idx); return; }
             // An ortho pane ROI is measured on its own pane's plane.
             let frame = null;
             if (_roiIsMvPaneRoi(roi)) {
@@ -21758,6 +21824,39 @@
             } catch (err) {
                 showToast(`ROI stats: ${err.message}`);
             }
+        }
+
+        /** Mosaic: measure one ROI on every tile in one request (the tile dims
+         *  broadcast), kept on `roi.paneStats` as [{key: 't<k>', label, stats}]. */
+        function _fetchMosaicRoiStats(idx) {
+            const roi = _rois[idx];
+            const panes = _roiMosaicPanes();
+            if (!roi || !panes.length || roi.type === 'floodfill') return;
+            const payload = _roiPayload([Object.assign({}, roi, { visible: true })], { currentIndices: true })[0];
+            if (!payload) return;
+            const z2 = _mosaicDim2();
+            const dims = z2 >= 0 ? [dim_z, z2] : [dim_z];
+            const token = roi._paneStatsToken = (roi._paneStatsToken || 0) + 1;
+            proxyFetch(`/roi_stats/${sid}`, {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({
+                    dim_x, dim_y, indices: indices.slice(), complex_mode: complexMode,
+                    rois: [Object.assign({}, payload, { scope: { indices: indices.slice(), broadcast_dims: dims, values: {} } })],
+                }),
+            }).then(r => r.json()).then(d => {
+                if (_rois[idx] !== roi || roi._paneStatsToken !== token) return;
+                const res = d.results && d.results[0];
+                const byK = new Map();
+                for (const row of (res && res.rows) || []) {
+                    const t = row.indices || [];
+                    byK.set(z2 >= 0 ? t[z2] * shape[dim_z] + t[dim_z] : t[dim_z], row);
+                }
+                roi.paneStats = panes.map(p => ({ key: p.key, label: p.label, stats: byK.get(p.k) || null }));
+                roi.stats = (res && res.stats) || null;
+                _updateRoiPanel();
+                _redrawRoiOverlays();
+            }).catch(() => {});
         }
 
         /** Side by side: measure one ROI in every pane (each pane's own array
@@ -28577,6 +28676,7 @@
             if (rectRoiMode && _roiShape === 'floodfill') {
                 e.preventDefault();
                 e.stopImmediatePropagation();
+                if (_roiMosaicActive()) { roiDragging = false; showStatus('flood fill: not available in a mosaic'); return; }
                 const ffRect = canvas.getBoundingClientRect();
                 const ffPx = Math.round((e.clientX - ffRect.left) * canvas.width / ffRect.width);
                 const ffPy = Math.round((e.clientY - ffRect.top) * canvas.height / ffRect.height);
@@ -28597,10 +28697,11 @@
             }
             const rect = canvas.getBoundingClientRect();
             if (rectRoiMode && e.button === 0 && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
-                const hx = (e.clientX - rect.left) * canvas.width / rect.width;
-                const hy = (e.clientY - rect.top) * canvas.height / rect.height;
+                const hp = _roiMainPoint(e);
+                const hx = hp.x, hy = hp.y;
                 const hit = _roiHitTest(hx, hy, Math.max(3, 8 * canvas.width / rect.width));
                 if (hit) {
+                    _roiMosaicTileLock = hp.k;
                     e.preventDefault();
                     roiDragging = false;
                     _roiSelect(hit.idx);
@@ -28610,10 +28711,16 @@
                     return;
                 }
             }
-            roiStart = roiEnd = {
-                x: (e.clientX - rect.left) * canvas.width / rect.width,
-                y: (e.clientY - rect.top) * canvas.height / rect.height,
-            };
+            if (rectRoiMode) {
+                const sp = _roiMainPoint(e);
+                _roiMosaicTileLock = sp.k;
+                roiStart = roiEnd = { x: sp.x, y: sp.y };
+            } else {
+                roiStart = roiEnd = {
+                    x: (e.clientX - rect.left) * canvas.width / rect.width,
+                    y: (e.clientY - rect.top) * canvas.height / rect.height,
+                };
+            }
             if (_roiShape === 'freehand') _roiFreehandPts = [[roiStart.x, roiStart.y]];
             // Hold left mouse button to activate pixel info readout
             if (!rectRoiMode && e.button === 0 && !e.shiftKey && !e.metaKey && !e.altKey
@@ -29749,12 +29856,30 @@
             if (_roiIsMvPaneRoi(realPreview)) { roiOverlayCanvas.style.display = 'none'; return; }
             roiOverlayCanvas.style.display = '';
             const replaceIdx = realPreview && Number.isInteger(realPreview.replaceIdx) ? realPreview.replaceIdx : -1;
+            // Mosaic: the same shapes on every tile, each tile clipped; the
+            // hover pill only on the tile under the pointer, with its numbers.
+            const tiles = _roiMosaicTiles();
+            let hoverK = -1;
+            if (tiles.length) {
+                const cr = canvas.getBoundingClientRect();
+                hoverK = _roiMosaicTileLock >= 0 ? _roiMosaicTileLock
+                    : _roiMosaicTileAtCanvas((_lastMouseX - cr.left) * canvas.width / cr.width, (_lastMouseY - cr.top) * canvas.height / cr.height);
+            }
+            for (const tile of (tiles.length ? tiles : [null])) {
+            if (tile) {
+                roiOverlayCtx.save();
+                roiOverlayCtx.beginPath();
+                roiOverlayCtx.rect(tile.ox * sx, tile.oy * sy, tile.w * sx, tile.h * sy);
+                roiOverlayCtx.clip();
+                roiOverlayCtx.translate(tile.ox * sx, tile.oy * sy);
+            }
             if (_roiVisible) {
                 for (let i = 0; i < _rois.length; i++) {
                     const r = _rois[i];
                     if (i === replaceIdx) continue;
                     if (_roiIsMvPaneRoi(r)) continue;
                     if (!_roiIsVisibleOnCurrentSlice(r)) continue;
+                    if (tile && r.type === 'floodfill') continue;
                     const c = _roiColors[i % _roiColors.length];
                     // Floodfill masks are in data space; flip the drawing context
                     // to display space so the mask aligns with the flipped image.
@@ -29772,7 +29897,8 @@
                         if (flip_y) ly = dH - ly;
                     }
                     _roiDrawLabel(roiOverlayCtx, lbl, lx, ly, c.stroke);
-                    _roiDrawHoverPill(roiOverlayCtx, r, i, sx, sy, rr => rr?.stats, ffDs ? { x: flip_x, y: flip_y, w: dW, h: dH } : null);
+                    if (!tile) _roiDrawHoverPill(roiOverlayCtx, r, i, sx, sy, rr => rr?.stats, ffDs ? { x: flip_x, y: flip_y, w: dW, h: dH } : null);
+                    else if (tile.k === hoverK) _roiDrawHoverPill(roiOverlayCtx, r, i, sx, sy, rr => _roiPaneStat(rr, `t${tile.k}`));
                 }
             }
             // Draw in-progress real-ROI-tool preview (same border treatment as committed ROIs)
@@ -29788,6 +29914,8 @@
                 _roiDrawVisibleShape(roiOverlayCtx, realPreview, sx, sy, c, replaceIdx === _selectedRoiIdx);
                 if (replaceIdx === _selectedRoiIdx) _roiDrawHandles(roiOverlayCtx, realPreview, sx, sy);
                 roiOverlayCtx.restore();
+            }
+            if (tile) roiOverlayCtx.restore();
             }
             // Still-dragging quick-measure outline (no stats/pill yet).
             if (infoPreview) {
@@ -30067,8 +30195,16 @@
                 }
             }
         }
+        let _roiMeasureSig = '';
         function _redrawRoiOverlays(previewRoi) {
             _roiFollowView();
+            // The layout decides how a ROI is measured (one number, one per
+            // pane / map / tile): measure again when it changes.
+            const msig = [compareActive, qmriActive, multiViewActive, dim_z, dim_z >= 0 ? _mosaicDim2() : -1].join();
+            if (msig !== _roiMeasureSig) {
+                _roiMeasureSig = msig;
+                if (_rois.length) _scheduleRoiStatsRefresh();
+            }
             _reconcileRoiHud();
             if (compareActive) _drawAllCompareRois(previewRoi);
             else if (multiViewActive && mvViews.length) _drawAllMvRois(previewRoi);
@@ -30275,9 +30411,9 @@
                 ? (Number.isInteger(v) ? String(v) : parseFloat(v.toPrecision(6)).toString())
                 : '';
             const shown = _rois.map((r, i) => [r, i]).filter(([r]) => r && r.visible !== false);
-            const panes = _roiComparePanes();
+            const panes = _roiComparePanes().length ? _roiComparePanes() : _roiMosaicPanes();
             if (panes.length) {
-                // Side by side: one row per ROI and pane.
+                // Side by side / mosaic: one row per ROI and pane (tile).
                 const rows = [['ROI', 'pane', 'mean', 'std', 'min', 'max', 'pixels']];
                 for (const [r, i] of shown) {
                     for (const p of panes) {
@@ -30487,12 +30623,11 @@
                 _cropDragPushT = 0;
                 _cropPushUpdate();
             }
+            _roiMosaicTileLock = -1; // after the canvas' own mouseup
         });
         canvas.addEventListener('mousemove', e => {
             if (_roiEditDrag) {
-                const rect = canvas.getBoundingClientRect();
-                const x = (e.clientX - rect.left) * canvas.width / rect.width;
-                const y = (e.clientY - rect.top) * canvas.height / rect.height;
+                const { x, y } = _roiMainPoint(e);
                 const r = _rois[_roiEditDrag.idx];
                 if (!r) return;
                 if (Math.hypot(x - _roiEditDrag.startX, y - _roiEditDrag.startY) > 2) _roiEditDrag.moved = true;
@@ -30506,7 +30641,7 @@
             }
             if (!roiDragging) return;
             const rect = canvas.getBoundingClientRect();
-            roiEnd = {
+            roiEnd = rectRoiMode ? (({ x, y }) => ({ x, y }))(_roiMainPoint(e)) : {
                 x: (e.clientX - rect.left) * canvas.width / rect.width,
                 y: (e.clientY - rect.top) * canvas.height / rect.height,
             };
@@ -30569,9 +30704,7 @@
             if (!rectRoiMode) return;
             e.preventDefault();
             e.stopImmediatePropagation();
-            const rect = canvas.getBoundingClientRect();
-            const cx = (e.clientX - rect.left) * canvas.width / rect.width;
-            const cy = (e.clientY - rect.top) * canvas.height / rect.height;
+            const { x: cx, y: cy } = _roiMainPoint(e);
             const fi = { fx: flip_x, fy: flip_y, w: canvas.width, h: canvas.height };
             for (let i = _rois.length - 1; i >= 0; i--) {
                 const ffi = (_rois[i].type === 'floodfill') ? fi : null;

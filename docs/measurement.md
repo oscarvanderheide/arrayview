@@ -22,10 +22,26 @@ under each ROI — the same region in recon A and recon B, or in echo 1 and
 echo 5. Hovering a ROI shows each pane's own mean ± std next to it. The numbers
 follow when you scroll, move a pane with `[`/`]`, or add and remove panes. ROIs
 carry over when you go back to one image. `copy` and `CSV` give one row per ROI
-and pane.
+and pane. With a difference image in the middle (`Shift+X`: A−B, |A−B| or
+relative) the ROI shows there too, with its own line of numbers.
 
-ROIs are not available in 3-plane or qMRI rows of a side-by-side view, when the
-panes differ in size, and flood fill is single-view only.
+### Mosaic, 3-plane and turning the view
+
+In a mosaic (`z`, `Shift+→`, `Shift+↓`) a ROI drawn on one tile appears on
+every tile, and the panel lists one line per tile, each measured on that
+tile's slice. Hovering shows the numbers of the tile under the pointer.
+
+In 3-plane view (`v`) a ROI belongs to the pane it was drawn on and is
+measured on that pane's plane.
+
+`t`, `r`, `x`/`y` and mirroring turn ROIs with the image, so they keep
+measuring the same pixels. `o` switches to another slicing direction: ROIs
+drawn in the old one are hidden (their row in the panel is dimmed) and come
+back when you return to it.
+
+ROIs are not available in 3-plane or qMRI rows of a side-by-side view, or when
+the panes differ in size. Flood fill is not available side by side or in a
+mosaic.
 
 `N` exports the active ROI or segmentation mask as `.npy`.
 

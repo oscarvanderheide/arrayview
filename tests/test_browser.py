@@ -2136,6 +2136,54 @@ class TestROIDrag:
         assert page.evaluate("() => { const o = document.getElementById('compare-diff-canvas')._roiOverlay; return !!o && o.style.display !== 'none'; }")
         assert page.locator("#roi-stats-hud .roi-hud-panerow").count() == 3
 
+    def test_roi_in_mosaic_is_on_every_tile_with_its_own_numbers(self, loaded_viewer, client, tmp_path):
+        # Shift+→ lays slices out as tiles; a ROI drawn on one tile shows on
+        # all of them and the panel has one line per tile, each measured on
+        # that tile's slice.
+        from conftest import register_array
+
+        arr = np.random.default_rng(13).random((4, 30, 40)).astype(np.float32)
+        page = loaded_viewer(register_array(client, arr, tmp_path, "mosaicroi"))
+        page.set_viewport_size({"width": 1400, "height": 900})
+        _focus_kb(page)
+        page.evaluate("() => { activeDim = 0; renderInfo(); }")
+        page.keyboard.press("Shift+ArrowRight")
+        page.wait_for_function("() => dim_z === 0", timeout=5_000)
+        page.wait_for_timeout(1200)
+        page.mouse.move(5, 5)
+        page.keyboard.press("i")
+        page.wait_for_function("() => rectRoiMode", timeout=3_000)
+        assert page.evaluate("() => _roiUnavailableReason()") == ""
+        page.evaluate("_roiSetShape('rect')")
+        # Draw on the third tile.
+        box = page.locator("canvas#viewer").bounding_box()
+        tile = page.evaluate("() => { const g = _mosaicGridInfo(); return [g.cols, (g.tileW + g.GAP) / canvas.width, g.tileW / canvas.width]; }")
+        cols, step, tw = tile
+        assert cols == 4
+        x = box["x"] + box["width"] * (2 * step)
+        self._drag_rect(page, {"x": x, "y": box["y"], "width": box["width"] * tw, "height": box["height"]})
+        page.wait_for_function(
+            "() => _rois.length === 1 && (_rois[0].paneStats || []).length === 4 && _rois[0].paneStats.every(q => q.stats)",
+            timeout=8_000,
+        )
+        r = page.evaluate("""() => ({ind: indices.slice(), dx: dim_x, dy: dim_y, fx: flip_x, fy: flip_y,
+            x0: _rois[0].x0, y0: _rois[0].y0, x1: _rois[0].x1, y1: _rois[0].y1,
+            means: _rois[0].paneStats.map(q => q.stats.mean)})""")
+        assert 0 <= r["x0"] < 40 and r["x1"] < 40, r  # tile coordinates, not grid
+        for k, mean in enumerate(r["means"]):
+            ind = list(r["ind"]); ind[0] = k
+            want = self._rect_mean(arr, ind, r["dx"], r["dy"], r["fx"], r["fy"], r["x0"], r["y0"], r["x1"], r["y1"])
+            assert abs(mean - want) < 1e-4, (k, mean, want)
+        assert page.locator("#roi-stats-hud .roi-hud-panerow").count() == 4
+
+        # Back to one slice: the same ROI, one number again.
+        page.mouse.move(5, 5)
+        page.keyboard.press("Shift+ArrowLeft")
+        page.wait_for_function("() => dim_z < 0", timeout=5_000)
+        page.wait_for_timeout(800)
+        assert page.evaluate("() => _rois.length") == 1
+        assert page.locator("#roi-stats-hud .roi-hud-panerow").count() == 0
+
     def test_roi_outline_follows_pinch_zoom(self, loaded_viewer, sid_3d):
         # The outline canvas must resize with every zoom step, not only on
         # the next render.
