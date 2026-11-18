@@ -30796,12 +30796,12 @@
          *  The selection stays where it is. */
         // Big mosaics: tiles shrink to specks and every tile must be read first.
         // Over `limit` (z 32 tiles, Shift+→ 6 across, Shift+↓ 4 down) the first
-        // press only warns; the same press again within a few seconds goes ahead.
+        // press only warns (toast); the same press again within 3 s goes ahead.
         let _mosaicBigAsk = null;
-        function _mosaicSizeOk(n, limit, what, key) {
-            if (n > limit && !(_mosaicBigAsk && _mosaicBigAsk.key === key && Date.now() - _mosaicBigAsk.t < 4000)) {
+        function _mosaicSizeOk(n, limit, what, keyName, key) {
+            if (n > limit && !(_mosaicBigAsk && _mosaicBigAsk.key === key && Date.now() - _mosaicBigAsk.t < 3000)) {
                 _mosaicBigAsk = { key, t: Date.now() };
-                showStatus(`mosaic: ${n} ${what}, will be slow and small — press again to go ahead`);
+                showToast(`mosaic: ${n} ${what} — press ${keyName} again`);
                 return false;
             }
             _mosaicBigAsk = null;
@@ -30831,8 +30831,8 @@
                 }
             }
             if (removed < 0 && !(dir === 'across'
-                ? _mosaicSizeOk(shape[across], 6, 'across', `${dir}:${d}`)
-                : _mosaicSizeOk(shape[down], 4, 'down', `${dir}:${d}`))) return;
+                ? _mosaicSizeOk(shape[across], 6, 'across', 'Shift+→', `${dir}:${d}`)
+                : _mosaicSizeOk(shape[down], 4, 'down', 'Shift+↓', `${dir}:${d}`))) return;
             const commit = () => {
                 if (across >= 0 && down >= 0) { dim_z = across; dim_z2 = down; mosaicLayout = 'grid'; }
                 else if (across >= 0 || down >= 0) { dim_z = across >= 0 ? across : down; dim_z2 = -1; mosaicLayout = across >= 0 ? 'row' : 'col'; }
@@ -32229,10 +32229,10 @@
                     }
                     // That dim is already one pane each: tiling it again repeats every pane.
                     if (dim_z < 0 && detachedDim >= 0 && current_slice_dim === detachedDim) {
-                        showStatus('mosaic: this dim is side by side — tap s for one image first');
+                        showToast('mosaic: side by side — tap s first');
                         return;
                     }
-                    if (dim_z < 0 && !_mosaicSizeOk(shape[current_slice_dim], 32, 'tiles', `z:${current_slice_dim}`)) return;
+                    if (dim_z < 0 && !_mosaicSizeOk(shape[current_slice_dim], 32, 'tiles', 'z', `z:${current_slice_dim}`)) return;
                     _afterGlide(_mosaicToggle);
                 },
             },

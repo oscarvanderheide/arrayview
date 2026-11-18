@@ -1101,6 +1101,9 @@ class TestKeyboard:
         page.keyboard.press("z")
         page.wait_for_timeout(300)
         assert page.evaluate("() => dim_z") == -1
+        # The warning must be on screen, not only in the hidden status line.
+        assert page.locator("#toast").is_visible()
+        assert "press z again" in page.locator("#toast").text_content()
         page.keyboard.press("z")
         page.wait_for_function("() => dim_z === 2", timeout=10_000)
         page.keyboard.press("z")
@@ -1111,6 +1114,7 @@ class TestKeyboard:
             page.keyboard.press(key)
             page.wait_for_timeout(300)
             assert not page.evaluate(f"() => {check}"), key
+            assert page.locator("#toast").is_visible(), key
             page.keyboard.press(key)
             page.wait_for_function(f"() => {check}", timeout=10_000)
             page.wait_for_timeout(500)
