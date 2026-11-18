@@ -191,7 +191,5 @@ Available targeted commands include:
 
 ```bash
 uv run pytest tests/test_api.py -v
-uv run pytest tests/test_browser.py -v
-uv run pytest tests/test_mode_roundtrip.py -v
 uv run python tests/visual_smoke.py
 ```

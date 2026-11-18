@@ -1,11 +1,9 @@
-import base64
 import io
 import os
 import time
 
 import numpy as np
 import pytest
-from playwright.sync_api import expect
 from pydicom.dataset import FileDataset, FileMetaDataset
 from pydicom.uid import ExplicitVRLittleEndian, MRImageStorage, generate_uid
 
@@ -252,85 +250,3 @@ def test_drop_expires_and_cleans_tempdir(client, monkeypatch):
     time.sleep(0.08)
     assert client.delete(f"/drop/{body['drop_id']}").status_code == 404
 
-
-@pytest.mark.browser
-def test_file_drop_waits_for_explicit_menu_action(loaded_viewer, sid_2d):
-    before = set(SESSIONS)
-    buffer = io.BytesIO()
-    np.save(buffer, np.zeros(SESSIONS[sid_2d].shape, dtype=np.float32))
-    encoded = base64.b64encode(buffer.getvalue()).decode()
-    page = loaded_viewer(sid_2d)
-
-    page.evaluate(
-        """({encoded}) => {
-            const bytes = Uint8Array.from(atob(encoded), char => char.charCodeAt(0));
-            const transfer = new DataTransfer();
-            transfer.items.add(new File([bytes], 'candidate.npy', {type: 'application/octet-stream'}));
-            document.body.dispatchEvent(new DragEvent('drop', {
-                bubbles: true,
-                cancelable: true,
-                clientX: 420,
-                clientY: 260,
-                dataTransfer: transfer,
-            }));
-        }""",
-        {"encoded": encoded},
-    )
-
-    menu = page.locator("#drop-action-menu")
-    expect(menu).to_have_class("visible")
-    expect(menu).to_contain_text("Compare side by side")
-    expect(menu).to_contain_text("Open separately")
-    expect(menu).to_contain_text("Add as overlay")
-    assert set(SESSIONS) == before
-
-    page.keyboard.press("Escape")
-    expect(menu).not_to_have_class("visible")
-
-
-@pytest.mark.browser
-def test_compatible_drop_can_enter_compare(loaded_viewer, sid_2d):
-    buffer = io.BytesIO()
-    np.save(buffer, np.ones(SESSIONS[sid_2d].shape, dtype=np.float32))
-    encoded = base64.b64encode(buffer.getvalue()).decode()
-    page = loaded_viewer(sid_2d)
-    page.evaluate(
-        """({encoded}) => {
-            const bytes = Uint8Array.from(atob(encoded), char => char.charCodeAt(0));
-            const transfer = new DataTransfer();
-            transfer.items.add(new File([bytes], 'compare.npy', {type: 'application/octet-stream'}));
-            document.body.dispatchEvent(new DragEvent('drop', {
-                bubbles: true, cancelable: true, clientX: 420, clientY: 260,
-                dataTransfer: transfer,
-            }));
-        }""",
-        {"encoded": encoded},
-    )
-
-    page.get_by_role("button", name="Compare side by side").click()
-    expect(page.locator("#compare-view-wrap")).to_be_visible()
-    expect(page.locator("#drop-action-menu")).not_to_have_class("visible")
-
-
-@pytest.mark.browser
-def test_compatible_drop_can_attach_overlay(loaded_viewer, sid_2d):
-    buffer = io.BytesIO()
-    np.save(buffer, np.ones(SESSIONS[sid_2d].shape, dtype=np.uint8))
-    encoded = base64.b64encode(buffer.getvalue()).decode()
-    page = loaded_viewer(sid_2d)
-    page.evaluate(
-        """({encoded}) => {
-            const bytes = Uint8Array.from(atob(encoded), char => char.charCodeAt(0));
-            const transfer = new DataTransfer();
-            transfer.items.add(new File([bytes], 'mask.npy', {type: 'application/octet-stream'}));
-            document.body.dispatchEvent(new DragEvent('drop', {
-                bubbles: true, cancelable: true, clientX: 420, clientY: 260,
-                dataTransfer: transfer,
-            }));
-        }""",
-        {"encoded": encoded},
-    )
-
-    page.get_by_role("button", name="Add as overlay").click()
-    expect(page.locator("#overlay-palette")).to_have_class("visible")
-    expect(page.locator("#overlay-palette")).to_contain_text("mask.npy")

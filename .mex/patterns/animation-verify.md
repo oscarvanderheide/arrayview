@@ -21,7 +21,7 @@ last_updated: 2026-07-01
 
 # Animation Verify
 
-**Why this exists:** The test suite (`tests/test_browser.py`, `tests/visual_smoke.py`, `tests/ui_audit.py`)
+**Why this exists:** The test suite (`tests/visual_smoke.py`, `tests/ui_audit.py`)
 captures STEADY-STATE screenshots ONLY. "All tests pass" is meaningless for
 animation quality.
 
@@ -128,7 +128,6 @@ For pinch immersive crossfade: drive `immersiveTl.progress()` at 0 → 0.25 → 
 ## Gotchas
 
 - **`tests/visual_smoke.py` does NOT test animation** — it takes one screenshot per scenario after transitions settle. An animation can look terrible and still produce the correct final screenshot.
-- **`tests/test_browser.py` snapshot tests compare steady-state only** — a 1% pixel threshold can pass even if the animation path was full of jumps.
 - **`tests/ui_audit.py` takes static screenshots** — no temporal validation whatsoever.
 - **`tests/capture_v_animation.py` is manual-review only** — it has no automated assertions. YOU must inspect the frames yourself and describe what you saw. Do not claim "tests pass" — that phrase has no meaning for animation.
 
