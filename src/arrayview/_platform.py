@@ -475,6 +475,26 @@ def _process_is_alive(pid: object) -> bool:
     return True
 
 
+def _registration_is_foreign(registration: object) -> bool:
+    """True when a window registration was written on another machine.
+
+    ``~/.arrayview`` can sit on a network home shared by several hosts; a pid
+    from another host says nothing about a process here.  Registrations from
+    openers that predate the ``host`` field are judged locally, as before.
+    """
+    import socket
+
+    host = registration.get("host") if isinstance(registration, dict) else None
+    return isinstance(host, str) and bool(host) and host != socket.gethostname()
+
+
+def _registration_is_live(registration: object) -> bool:
+    """True when a registration belongs to this host and its process runs."""
+    if not isinstance(registration, dict) or _registration_is_foreign(registration):
+        return False
+    return _process_is_alive(registration.get("pid"))
+
+
 def _superseding_window_registration(
     claimed_ids: list[str],
     signal_dir: str,
@@ -539,9 +559,7 @@ def _exact_vscode_window_registration(
                 registration = json.load(handle)
         except (OSError, ValueError, TypeError):
             return None
-        if not isinstance(registration, dict) or not _process_is_alive(
-            registration.get("pid")
-        ):
+        if not _registration_is_live(registration):
             return None
         return window_id, registration
 
@@ -640,8 +658,8 @@ def _has_live_vscode_remote_registration() -> bool:
                 registration = json.load(handle)
         except (OSError, ValueError, TypeError):
             continue
-        if registration.get("remoteName") is not None and _process_is_alive(
-            registration.get("pid")
+        if registration.get("remoteName") is not None and _registration_is_live(
+            registration
         ):
             return True
     return False

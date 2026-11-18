@@ -812,10 +812,10 @@ def _write_vscode_signal(
             try:
                 with open(current_ipc_registration, encoding="utf-8") as registration_file:
                     current_ipc_data = json.load(registration_file)
-                from arrayview._platform import _process_is_alive
+                from arrayview._platform import _registration_is_live
 
                 if (
-                    _process_is_alive(current_ipc_data.get("pid"))
+                    _registration_is_live(current_ipc_data)
                     and current_ipc_data.get("hookTag") == current_ipc_wid
                 ):
                     if env_wid and env_wid != current_ipc_wid:
@@ -1252,11 +1252,11 @@ def _cleanup_zombie_registrations(verbose: bool = False) -> int:
         except Exception:
             continue
 
-    from arrayview._platform import _process_is_alive
+    from arrayview._platform import _process_is_alive, _registration_is_foreign
 
     for wid, data in list(registrations.items()):
         pid = data.get("pid")
-        if pid is None:
+        if pid is None or _registration_is_foreign(data):
             continue
         if not _process_is_alive(pid):
             try:

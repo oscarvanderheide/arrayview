@@ -21,6 +21,7 @@ from arrayview._platform import (
     _in_vscode_terminal,
     _is_vscode_remote,
     _process_is_alive,
+    _registration_is_live,
 )
 
 # ---------------------------------------------------------------------------
@@ -58,7 +59,7 @@ _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
 _VSCODE_EXT_RELOAD_REQUIRED = False  # installed files are newer than the live host
 _VSCODE_EXT_INSTALL_FAILED = False  # automatic install could not complete safely
 _VSCODE_EXT_NO_LIVE_WINDOW = False  # no live host claims this terminal's window id
-_VSCODE_EXT_VERSION = "0.15.77"  # current bundled extension version
+_VSCODE_EXT_VERSION = "0.15.78"  # current bundled extension version
 _VSCODE_CONFIGURED_PORTS: set[int] = set()
 # Version-skew notices already printed, so a long-lived process (Jupyter, a
 # script opening several arrays) states the mismatch once instead of per call.
@@ -577,7 +578,7 @@ def _live_window_registrations() -> list[dict]:
             continue
         if not isinstance(registration, dict):
             continue
-        if not _process_is_alive(registration.get("pid")):
+        if not _registration_is_live(registration):
             continue
         registrations.append(registration)
     return registrations
@@ -722,7 +723,10 @@ def _active_extension_registration() -> dict | None:
 
 def _active_extension_version() -> str | None:
     """Return the opener version advertised by this terminal's live host."""
-    registration = _active_extension_registration()
+    return _active_extension_version_from(_active_extension_registration())
+
+
+def _active_extension_version_from(registration: dict | None) -> str | None:
     if registration is None:
         return None
     value = registration.get("extensionVersion")
@@ -918,8 +922,15 @@ def _ensure_vscode_extension(*, is_remote: bool | None = None) -> bool:
     # which creates a ~10-15s gap during which the signal file can be missed.
     if is_remote is None:
         is_remote = _is_vscode_remote()
-    active_version = _active_extension_version()
     active_registration = _active_extension_registration()
+    if active_registration is None and is_remote:
+        # An older opener on another machine sharing this home folder can delete
+        # this window's registration; the live opener rewrites it within ~1s.
+        deadline = time.monotonic() + 2.5
+        while active_registration is None and time.monotonic() < deadline:
+            time.sleep(0.25)
+            active_registration = _active_extension_registration()
+    active_version = _active_extension_version_from(active_registration)
     # Before the slow install/verify work, not only in the failure text after
     # it: the user needs to know which opener this window will run.
     _report_opener_version_skew(ext_version)

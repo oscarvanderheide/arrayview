@@ -115,8 +115,33 @@ function _getAncestorPids(pid, depth) {
     return result;
 }
 const EXT_PPIDS = _getAncestorPids(process.pid, 8);
+// ~/.arrayview may live on a network home shared by several machines.  A pid
+// recorded on another machine means nothing here, so registrations carry the
+// writer's host and are only judged (alive/dead) by hosts that wrote them.
+const OWN_HOST = os.hostname();
+function isForeignRegistration(data) {
+    return Boolean(data && typeof data.host === 'string' && data.host && data.host !== OWN_HOST);
+}
+function isRegistrationAlive(data) {
+    if (!data || !data.pid || isForeignRegistration(data)) return false;
+    return isProcessAlive(data.pid);
+}
 
 let version = 'unknown';
+let ownRegistration = null;  // { file, data } while this window is registered
+
+// An older opener on another machine sharing this home folder cannot tell our
+// pid is alive and deletes our registration.  Put it back so terminals here
+// keep finding this window.
+function restoreOwnRegistration() {
+    if (!ownRegistration || fs.existsSync(ownRegistration.file)) return;
+    try {
+        _atomicWriteJson(ownRegistration.file, ownRegistration.data);
+        log(`REGISTER: restored ${path.basename(ownRegistration.file)} (deleted by another process)`);
+    } catch (e) {
+        log(`REGISTER: restore failed: ${e.message}`);
+    }
+}
 let isProcessingSignal = false;
 // Identifies which request currently holds the queue. The lock is released as
 // soon as a request's panel is up, while its readiness wait continues, so a
@@ -1202,7 +1227,7 @@ function _reportExtensionVersionSkew(ownWindowId, ownVersion) {
                 data = JSON.parse(fs.readFileSync(path.join(SIGNAL_DIR, f), 'utf8'));
             } catch (_) { continue; }
             if (!data || !data.extensionVersion || data.extensionVersion === ownVersion) continue;
-            if (!data.pid || !isProcessAlive(data.pid)) continue;
+            if (!isRegistrationAlive(data)) continue;
             const host = data.remoteName || 'local';
             peers.push(
                 `${data.extensionVersion} (${host}, window `
@@ -2477,8 +2502,7 @@ function _uniqueLiveSupersedingRegistration(windowId) {
             }
             if (
                 !registration
-                || !registration.pid
-                || !isProcessAlive(registration.pid)
+                || !isRegistrationAlive(registration)
                 || !Array.isArray(registration.supersedes)
                 || !registration.supersedes.includes(windowId)
             ) {
@@ -2815,7 +2839,7 @@ function cleanupStaleFiles() {
             if (f.startsWith('window-') && f.endsWith('.json')) {
                 try {
                     const data = JSON.parse(fs.readFileSync(path.join(SIGNAL_DIR, f), 'utf8'));
-                    if (data.pid && !isProcessAlive(data.pid)) {
+                    if (data.pid && !isForeignRegistration(data) && !isProcessAlive(data.pid)) {
                         fs.unlinkSync(path.join(SIGNAL_DIR, f));
                         log(`CLEANUP: removed stale registration ${f} (pid ${data.pid} dead)`);
                     }
@@ -4961,7 +4985,8 @@ function activate(context) {
             try {
                 if (fs.existsSync(regPath)) {
                     const regData = JSON.parse(fs.readFileSync(regPath, 'utf8'));
-                    if (regData.pid && regData.pid !== process.pid && isProcessAlive(regData.pid)) {
+                    if (isForeignRegistration(regData)
+                        || (regData.pid && regData.pid !== process.pid && isProcessAlive(regData.pid))) {
                         otherOwns = true;
                     }
                 }
@@ -5013,8 +5038,9 @@ function activate(context) {
     }
     const regFile = path.join(SIGNAL_DIR, `window-${windowId}.json`);
     try {
-        _atomicWriteJson(regFile, {
+        ownRegistration = { file: regFile, data: {
             hookTag: OWN_HOOK_TAG || '',
+            host: OWN_HOST,
             pid: process.pid,
             windowId,
             ppids: EXT_PPIDS,   // ancestor PIDs for multi-window matching by Python
@@ -5025,7 +5051,8 @@ function activate(context) {
             extensionInstanceId: EXTENSION_INSTANCE_ID,
             supersedes: supersededIds,  // window ids whose terminals still point here
             signalQueueVersion: 1
-        });
+        } };
+        _atomicWriteJson(regFile, ownRegistration.data);
         log(`REGISTER: wrote ${path.basename(regFile)} (${OWN_HOOK_TAG ? 'hookTag' : 'PID fallback'})`);
         context.subscriptions.push({ dispose: () => {
             const removed = _removeRegistrationIfOwned(regFile, {
@@ -5033,6 +5060,7 @@ function activate(context) {
                 windowId,
                 extensionInstanceId: EXTENSION_INSTANCE_ID,
             });
+            ownRegistration = null;
             log(`REGISTER: dispose ${removed ? 'deleted' : 'preserved replacement'} ${path.basename(regFile)}`);
         }});
     } catch (e) {
@@ -5057,6 +5085,7 @@ function activate(context) {
                 if (wid === windowId) continue;
                 try {
                     const data = JSON.parse(fs.readFileSync(path.join(SIGNAL_DIR, f), 'utf8'));
+                    if (isForeignRegistration(data)) continue;
                     if (shouldRemoveSameTunnelRegistration(
                         windowId,
                         EXT_PPIDS,
@@ -5078,6 +5107,7 @@ function activate(context) {
     void tryOpenSignalFile();
 
     const interval = setInterval(() => {
+        restoreOwnRegistration();
         void tryOpenSignalFile();
         tryPublicPortRequests();
         tryRevealRequests();
