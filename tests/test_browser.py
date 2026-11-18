@@ -2047,6 +2047,9 @@ class TestROIDrag:
         page.wait_for_selector("#roi-stats-hud.visible", timeout=2_000)
         hud = page.locator("#roi-stats-hud").bounding_box()
         assert hud["x"] + hud["width"] > 1400 - 30 and hud["y"] < 30, hud  # top right
+        # Each row starts with its shape icon in the ROI colour.
+        assert page.locator("#roi-stats-hud .roi-hud-row .roi-hud-shape svg").count() == 1
+        assert page.locator("#roi-stats-hud .roi-hud-row .roi-hud-shape").get_attribute("title") == "rectangle"
 
         # Hold Alt, release over the circle button → picked.
         page.mouse.move(700, 450)
