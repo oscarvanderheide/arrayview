@@ -72,6 +72,11 @@ from arrayview._imaging import ensure_image as _pil_image, ensure_imageops as _p
 
 app = FastAPI()
 
+# Other users on a shared machine can reach loopback ports; refuse them.
+from arrayview._peer_guard import PeerOwnerGuard  # noqa: E402
+
+app.add_middleware(PeerOwnerGuard)
+
 
 # Identity, capabilities and the /ping contract are owned by _session.py so a
 # booting daemon can answer /ping before this module has imported. Re-exported

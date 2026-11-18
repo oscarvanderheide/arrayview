@@ -74,7 +74,17 @@ to an ArrayView on a third machine. Every assumption that a port, a forward or
 Rows touched: 6, 21 (Remote SSH), tunnel rows, Explorer clicks (local and
 remote), plain-SSH relay. Evidence: `component` (planner, registry and opener
 unit tests). Real-host recheck: the colleague's setup after release.
-Still open: the server accepts any local user (no per-user secret).
+Server owner check (same day, after the above): on Linux every request and
+WebSocket except `GET /ping` is refused (403 / close 4403) when the client end
+of the loopback connection belongs to another non-root uid (sock_diag lookup,
+~15 µs; /proc/net/tcp fallback). No URL or viewer change. Not enforced on
+macOS/Windows or when the owner is unknowable (container port maps, non-loopback
+clients); `ARRAYVIEW_ALLOW_OTHER_USERS=1` turns it off. Evidence: `real process`
+(server faking a foreign owner: /sessions, /load, page, ::1 and WebSocket all
+refused, /ping open; owned server: load, page, metadata, WebSocket fine) and
+the browser suite (78 pass; the 2 failures also fail with the check off).
+Remote SSH / tunnel forwarders are the user's own processes, so those rows
+should be unaffected — not yet seen on a real host.
 
 ### 2026-11-11 several arrays always open as one stack — CLI, Python, Julia, MATLAB
 
