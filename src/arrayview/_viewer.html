@@ -5509,6 +5509,16 @@
             transition: opacity 0.12s ease-out, transform 0.2s cubic-bezier(0.34, 1.4, 0.64, 1);
         }
         .spread-picker__opts { position: relative; display: flex; gap: var(--sp-gap); }
+        /* Mosaic notice: same pill, title + hint, and a line that runs out while
+           a second press still counts. */
+        .mosaic-notice { padding: 6px 8px 5px; gap: 2px; }
+        .mosaic-notice__drain {
+            align-self: stretch; height: 2px; margin: 3px 4px 0; border-radius: 1px;
+            background: color-mix(in srgb, var(--active-dim) 70%, transparent);
+            transform-origin: left center;
+            animation: mosaic-notice-drain 3s linear forwards;
+        }
+        @keyframes mosaic-notice-drain { from { transform: scaleX(1); } to { transform: scaleX(0); } }
         .spread-picker__hint {
             padding: 0 5px 2px;
             font-size: 9px; line-height: 1.3; letter-spacing: 0.01em; white-space: nowrap;
@@ -30790,24 +30800,66 @@
         function _mosaicAcross() { const l = _mosaicArrange(); return l === 'row' || l === 'grid' ? dim_z : -1; }
         function _mosaicDown() { const l = _mosaicArrange(); return l === 'col' ? dim_z : l === 'grid' ? dim_z2 : -1; }
 
-        /** Shift+→ / Shift+↓ on the selected dim: lay it out across / down, or
-         *  take it out if it already is. Shift+← / Shift+↑ take the across /
-         *  down dim out wherever the selection is. A z mosaic is replaced.
-         *  The selection stays where it is. */
+        // ── Mosaic notice ───────────────────────────────────────────
+        // A pill like the pane count strip, at the bottom centre of the picture;
+        // the colour bar under it fades out while it is up. `drain`: a thin line
+        // runs out over the time a second press still counts.
+        const _MOSAIC_ASK_MS = 3000;
+        const _mosaicNote = { el: null, msg: null, timer: null, covered: [] };
+        function _mosaicNotice(title, hintHtml, drain = false) {
+            const m = _mosaicNote;
+            clearTimeout(m.timer);
+            m.msg = { title, hintHtml, drain };
+            m.timer = setTimeout(() => { m.msg = null; _reconcileMosaicNotice(); }, _MOSAIC_ASK_MS);
+            _reconcileMosaicNotice();
+        }
+        function _mosaicNoticeHide() {
+            const m = _mosaicNote;
+            if (!m.msg) return;
+            clearTimeout(m.timer);
+            m.msg = null;
+            _reconcileMosaicNotice();
+        }
+        function _reconcileMosaicNotice() {
+            const m = _mosaicNote;
+            m.covered.forEach(a => { a.onfinish = () => a.cancel(); a.reverse(); });
+            m.covered = [];
+            if (!m.msg) { m.el?.classList.remove('is-visible'); return; }
+            if (!m.el) {
+                m.el = document.createElement('div');
+                m.el.className = 'spread-picker mosaic-notice';
+                m.el.setAttribute('role', 'status');
+                document.body.appendChild(m.el);
+            }
+            const el = m.el;
+            el.innerHTML = '<div class="spread-picker__title"></div><div class="spread-picker__hint"></div>'
+                + (m.msg.drain ? '<div class="mosaic-notice__drain"></div>' : '');
+            el.children[0].textContent = m.msg.title;
+            el.children[1].innerHTML = m.msg.hintHtml;
+            _spreadPickPlace(el);
+            el.classList.add('is-visible');
+            m.covered = _fadeChromeUnder(el);
+        }
+
         // Big mosaics: tiles shrink to specks and every tile must be read first.
         // Over `limit` (z 32 tiles, Shift+→ 6 across, Shift+↓ 4 down) the first
-        // press only warns (toast); the same press again within 3 s goes ahead.
+        // press only warns; the same press again while the line runs out goes ahead.
         let _mosaicBigAsk = null;
-        function _mosaicSizeOk(n, limit, what, keyName, key) {
-            if (n > limit && !(_mosaicBigAsk && _mosaicBigAsk.key === key && Date.now() - _mosaicBigAsk.t < 3000)) {
+        function _mosaicSizeOk(n, limit, title, keyName, key) {
+            if (n > limit && !(_mosaicBigAsk && _mosaicBigAsk.key === key && Date.now() - _mosaicBigAsk.t < _MOSAIC_ASK_MS)) {
                 _mosaicBigAsk = { key, t: Date.now() };
-                showToast(`mosaic: ${n} ${what} — press ${keyName} again`);
+                _mosaicNotice(title, `small and slow · press <b>${keyName}</b> again`, true);
                 return false;
             }
+            if (_mosaicBigAsk) _mosaicNoticeHide();
             _mosaicBigAsk = null;
             return true;
         }
 
+        /** Shift+→ / Shift+↓ on the selected dim: lay it out across / down, or
+         *  take it out if it already is. Shift+← / Shift+↑ take the across /
+         *  down dim out wherever the selection is. A z mosaic is replaced.
+         *  The selection stays where it is. */
         function _mosaicArrow(dir) {
             const d = activeDim;
             if (!_mosaicGridPlain()) { showStatus('mosaic layout: single view only'); return; }
@@ -30831,8 +30883,8 @@
                 }
             }
             if (removed < 0 && !(dir === 'across'
-                ? _mosaicSizeOk(shape[across], 6, 'across', 'Shift+→', `${dir}:${d}`)
-                : _mosaicSizeOk(shape[down], 4, 'down', 'Shift+↓', `${dir}:${d}`))) return;
+                ? _mosaicSizeOk(shape[across], 6, `${shape[across]} tiles across`, 'Shift+→', `${dir}:${d}`)
+                : _mosaicSizeOk(shape[down], 4, `${shape[down]} rows down`, 'Shift+↓', `${dir}:${d}`))) return;
             const commit = () => {
                 if (across >= 0 && down >= 0) { dim_z = across; dim_z2 = down; mosaicLayout = 'grid'; }
                 else if (across >= 0 || down >= 0) { dim_z = across >= 0 ? across : down; dim_z2 = -1; mosaicLayout = across >= 0 ? 'row' : 'col'; }
@@ -32229,10 +32281,10 @@
                     }
                     // That dim is already one pane each: tiling it again repeats every pane.
                     if (dim_z < 0 && detachedDim >= 0 && current_slice_dim === detachedDim) {
-                        showToast('mosaic: side by side — tap s first');
+                        _mosaicNotice('already side by side', 'tap <b>s</b> for one image, then <b>z</b>');
                         return;
                     }
-                    if (dim_z < 0 && !_mosaicSizeOk(shape[current_slice_dim], 32, 'tiles', 'z', `z:${current_slice_dim}`)) return;
+                    if (dim_z < 0 && !_mosaicSizeOk(shape[current_slice_dim], 32, `${shape[current_slice_dim]} tiles`, 'z', `z:${current_slice_dim}`)) return;
                     _afterGlide(_mosaicToggle);
                 },
             },
@@ -43756,8 +43808,7 @@
         }
 
         // Bottom centre of that box, as far as it is on screen.
-        function _spreadPickPlace() {
-            const el = _spreadPick.el;
+        function _spreadPickPlace(el = _spreadPick.el) {
             const w = el.offsetWidth, h = el.offsetHeight, vw = window.innerWidth, vh = window.innerHeight;
             const a = _spreadPickAnchor() || { left: 0, top: 0, right: vw, bottom: vh };
             const l = Math.max(0, a.left), r = Math.min(vw, a.right), b = Math.min(vh, a.bottom);
@@ -43773,15 +43824,18 @@
         function _spreadPickCover(on) {
             const p = _spreadPick;
             p.covered.forEach(a => { a.onfinish = () => a.cancel(); a.reverse(); });
-            p.covered = [];
-            if (!on) return;
-            const m = 6, x0 = parseFloat(p.el.style.left) - m, y0 = parseFloat(p.el.style.top) - m;
-            const x1 = x0 + p.el.offsetWidth + 2 * m, y1 = y0 + p.el.offsetHeight + 2 * m;
+            p.covered = on ? _fadeChromeUnder(p.el) : [];
+        }
+        // Fade out the chrome a floating pill `pill` lies on; returns the fades
+        // (reverse them to bring it back).
+        function _fadeChromeUnder(pill) {
+            const m = 6, x0 = parseFloat(pill.style.left) - m, y0 = parseFloat(pill.style.top) - m;
+            const x1 = x0 + pill.offsetWidth + 2 * m, y1 = y0 + pill.offsetHeight + 2 * m;
             const hit = [...document.querySelectorAll(_SPREAD_PICK_COVERS)].filter(el => {
                 const q = el.getBoundingClientRect();
                 return q.width && q.height && q.left < x1 && q.right > x0 && q.top < y1 && q.bottom > y0;
             });
-            p.covered = hit.filter(el => !hit.some(o => o !== el && o.contains(el)))
+            return hit.filter(el => !hit.some(o => o !== el && o.contains(el)))
                 .map(el => el.animate([{ opacity: 0 }], { duration: 120, easing: 'ease', fill: 'both' }));
         }
 
