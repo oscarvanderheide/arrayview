@@ -437,7 +437,11 @@ def _schedule_mosaic_prefetch(session, dim_x, dim_y, dim_z, idx_list, slice_dim,
     target = current + direction
     if not 0 <= target < session.shape[slice_dim]:
         return
-    frames = session.shape[dim_z] * (session.shape[dim_z2] if dim_z2 >= 0 else 1)
+    from arrayview._render import mosaic_range
+
+    frames = len(mosaic_range(session.shape, dim_z, render_args.get("z_sel"))) * (
+        len(mosaic_range(session.shape, dim_z2, render_args.get("z2_sel"))) if dim_z2 >= 0 else 1
+    )
     grid_bytes = frames * session.shape[dim_x] * session.shape[dim_y] * 4
     # Never let the warmed grid push the one on screen out of the cache.
     if 2 * grid_bytes > getattr(session, "MOSAIC_CACHE_BYTES", 0):

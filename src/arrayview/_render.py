@@ -169,17 +169,45 @@ def mosaic_shape(batch):
     return tuple(mshape)
 
 
-def mosaic_tile_indices(shape, dim_z, dim_z2, idx):
+def parse_mosaic_sel(value, n):
+    """``"start:stop:step"`` -> (start, stop, step) slices of a mosaic dim of size n.
+
+    None for every slice (also for empty or bad input), so a thinned and a
+    full request never share a cache key and a full one keys as before.
+    """
+    if value is None or value == "":
+        return None
+    try:
+        start, stop, step = (int(v) for v in str(value).split(":"))
+    except ValueError:
+        return None
+    n = int(n)
+    step = max(1, step)
+    start = min(max(0, start), max(0, n - 1))
+    stop = min(max(start + 1, stop), n)
+    if start == 0 and stop == n and step == 1:
+        return None
+    return (start, stop, step)
+
+
+def mosaic_range(shape, dim, sel=None):
+    """Slices of *dim* a mosaic shows: all of them, or ``sel`` (start, stop, step)."""
+    return range(*sel) if sel else range(int(shape[dim]))
+
+
+def mosaic_tile_indices(shape, dim_z, dim_z2, idx, z_sel=None, z2_sel=None):
     """Index list of every mosaic tile, row by row.
 
-    *dim_z* runs across the grid; *dim_z2* (``-1`` for none) runs down it,
-    so tile ``k`` is ``dim_z = k % shape[dim_z]``, ``dim_z2 = k // shape[dim_z]``.
+    *dim_z* runs across the grid; *dim_z2* (``-1`` for none) runs down it.
+    ``z_sel`` / ``z2_sel`` (start, stop, step) thin either dim; tile ``k`` is
+    the ``k % cols``-th shown slice of dim_z and the ``k // cols``-th of dim_z2.
     """
     base = list(idx)
-    rows = range(shape[dim_z2]) if dim_z2 >= 0 else (None,)
+    rows = mosaic_range(shape, dim_z2, z2_sel) if dim_z2 >= 0 else (None,)
+    cols = mosaic_range(shape, dim_z, z_sel)
     tiles = []
     for r in rows:
-        for c in range(shape[dim_z]):
+        for c in cols:
             t = list(base)
             t[dim_z] = c
             if r is not None:
@@ -188,9 +216,9 @@ def mosaic_tile_indices(shape, dim_z, dim_z2, idx):
     return tiles
 
 
-def mosaic_grid_cols(shape, dim_z, dim_z2, mosaic_cols=None):
+def mosaic_grid_cols(shape, dim_z, dim_z2, mosaic_cols=None, z_sel=None):
     """Column count a mosaic is laid out with (None = near-square)."""
-    return int(shape[dim_z]) if dim_z2 >= 0 else mosaic_cols
+    return len(mosaic_range(shape, dim_z, z_sel)) if dim_z2 >= 0 else mosaic_cols
 
 
 def _build_mosaic_grid(all_data, n, gap=2, cols=None):
@@ -925,8 +953,13 @@ def render_mosaic(
     fit=None,
     dim_z2=-1,
     window_out=None,
+    z_sel=None,
+    z2_sel=None,
 ):
     """Render the mosaic grid of every slice along *dim_z* (and *dim_z2*, down).
+
+    ``z_sel`` / ``z2_sel`` (start, stop, step, from parse_mosaic_sel) show
+    only those slices of dim_z / dim_z2.
 
     ``fit=(w, h)`` returns the grid already shrunk to the viewer's canvas
     (as the live socket would before sending) and caches it that way, so a
@@ -940,7 +973,7 @@ def render_mosaic(
     idx_norm[dim_z] = 0
     if dim_z2 >= 0:
         idx_norm[dim_z2] = 0
-    key = (dim_x, dim_y, dim_z, tuple(idx_norm), colormap, dr, complex_mode, log_scale, mosaic_cols, vmin_override, vmax_override, dim_z2)
+    key = (dim_x, dim_y, dim_z, tuple(idx_norm), colormap, dr, complex_mode, log_scale, mosaic_cols, vmin_override, vmax_override, dim_z2, z_sel, z2_sel)
 
     windows = session.__dict__.setdefault("_mosaic_windows", {})
 
@@ -949,7 +982,7 @@ def render_mosaic(
         rgba = _build_mosaic_rgba(
             session, dim_x, dim_y, dim_z, idx_tuple, colormap, dr, complex_mode,
             log_scale, mosaic_cols, vmin_override, vmax_override, progress,
-            dim_z2=dim_z2, window_out=win,
+            dim_z2=dim_z2, window_out=win, z_sel=z_sel, z2_sel=z2_sel,
         )
         if win:
             if len(windows) > 256:
@@ -1037,11 +1070,11 @@ def fit_rgba(rgba, canvas_w, canvas_h):
 def _build_mosaic_rgba(
     session, dim_x, dim_y, dim_z, idx_tuple, colormap, dr, complex_mode,
     log_scale, mosaic_cols, vmin_override, vmax_override, progress,
-    dim_z2=-1, window_out=None,
+    dim_z2=-1, window_out=None, z_sel=None, z2_sel=None,
 ):
-    tiles = mosaic_tile_indices(session.shape, dim_z, dim_z2, idx_tuple)
+    tiles = mosaic_tile_indices(session.shape, dim_z, dim_z2, idx_tuple, z_sel, z2_sel)
     n = len(tiles)
-    mosaic_cols = mosaic_grid_cols(session.shape, dim_z, dim_z2, mosaic_cols)
+    mosaic_cols = mosaic_grid_cols(session.shape, dim_z, dim_z2, mosaic_cols, z_sel)
     # Reported per slice rather than estimated: each slice faults in roughly the
     # same number of pages, so slice i of n is an honest fraction of the wait.
     # On an array whose display axes are the outer ones this loop is the whole
@@ -1111,15 +1144,17 @@ def _run_preload(
     log_scale=False,
     dim_z2=-1,
     mosaic_cols=None,
+    z_sel=None,
+    z2_sel=None,
 ):
     shape = session.spatial_shape if session.rgb_axis is not None else session.shape
     n = shape[slice_dim]
     H = shape[dim_y]
     W = shape[dim_x]
     if dim_z >= 0:
-        nz = shape[dim_z]
+        nz = len(mosaic_range(shape, dim_z, z_sel))
         mrows, mcols = (
-            (shape[dim_z2], nz) if dim_z2 >= 0
+            (len(mosaic_range(shape, dim_z2, z2_sel)), nz) if dim_z2 >= 0
             else (-(-nz // mosaic_cols), mosaic_cols) if mosaic_cols
             else mosaic_shape(nz)
         )
@@ -1153,6 +1188,8 @@ def _run_preload(
                 log_scale,
                 mosaic_cols=mosaic_cols,
                 dim_z2=dim_z2,
+                z_sel=z_sel,
+                z2_sel=z2_sel,
             )
         else:
             if session.rgb_axis is not None:
@@ -1211,6 +1248,8 @@ __all__ = [
     "LABEL_COLORS",
     # Mosaic
     "render_mosaic",
+    "parse_mosaic_sel",
+    "mosaic_range",
     # Preload
     "_run_preload",
 ]

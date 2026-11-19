@@ -114,6 +114,8 @@ def _composite_mosaic_overlays(
     base_shape: tuple[int, ...],
     mosaic_cols: int | None = None,
     dim_z2: int = -1,
+    z_sel: tuple[int, int, int] | None = None,
+    z2_sel: tuple[int, int, int] | None = None,
 ) -> np.ndarray:
     """Composite each overlay as a mosaic using the base mosaic's frame indices.
 
@@ -135,9 +137,9 @@ def _composite_mosaic_overlays(
         else []
     )
     tile_shape = (int(base_shape[dim_y]), int(base_shape[dim_x]))
-    tiles = mosaic_tile_indices(base_shape, dim_z, dim_z2, idx_tuple)
+    tiles = mosaic_tile_indices(base_shape, dim_z, dim_z2, idx_tuple, z_sel, z2_sel)
     n_frames = len(tiles)
-    mosaic_cols = mosaic_grid_cols(base_shape, dim_z, dim_z2, mosaic_cols)
+    mosaic_cols = mosaic_grid_cols(base_shape, dim_z, dim_z2, mosaic_cols, z_sel)
 
     for i, sid in enumerate(sids):
         color, hidden = (

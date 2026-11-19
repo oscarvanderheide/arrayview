@@ -2,7 +2,7 @@ import threading
 
 from fastapi import Request
 
-from arrayview._render import _run_preload
+from arrayview._render import _run_preload, parse_mosaic_sel
 from arrayview._session import SESSIONS
 
 
@@ -24,6 +24,8 @@ def register_preload_routes(app) -> None:
         dim_z2 = int(body.get("dim_z2", -1)) if dim_z >= 0 else -1
         _mc = body.get("mosaic_cols") if dim_z >= 0 else None
         mosaic_cols = int(_mc) if _mc is not None else None
+        z_sel = parse_mosaic_sel(body.get("z_sel"), session.shape[dim_z]) if dim_z >= 0 else None
+        z2_sel = parse_mosaic_sel(body.get("z2_sel"), session.shape[dim_z2]) if dim_z2 >= 0 else None
         complex_mode = int(body.get("complex_mode", 0))
         log_scale = bool(body.get("log_scale", False))
 
@@ -45,6 +47,8 @@ def register_preload_routes(app) -> None:
                 log_scale,
                 dim_z2,
                 mosaic_cols,
+                z_sel,
+                z2_sel,
             ),
             daemon=True,
         ).start()

@@ -18,6 +18,7 @@ from arrayview._render import (
     _ensure_lut,
     extract_projection,
     extract_slice,
+    parse_mosaic_sel,
     render_mosaic,
     render_projection_rgba,
     render_rgb_rgba,
@@ -634,6 +635,9 @@ def register_websocket_routes(app) -> None:
                 dim_z = int(msg.get("dim_z", -1))
                 # Second mosaic dim (down the rows); plain mosaic only.
                 dim_z2 = int(msg.get("dim_z2", -1)) if dim_z >= 0 else -1
+                # Thinned mosaic dims, "start:stop:step" (plain mosaic only).
+                z_sel = parse_mosaic_sel(msg.get("z_sel"), session.shape[dim_z]) if dim_z >= 0 else None
+                z2_sel = parse_mosaic_sel(msg.get("z2_sel"), session.shape[dim_z2]) if dim_z2 >= 0 else None
                 complex_mode = int(msg.get("complex_mode", 0))
                 log_scale = bool(msg.get("log_scale", False))
                 _vmin_ov = msg.get("vmin_override")
@@ -741,6 +745,8 @@ def register_websocket_routes(app) -> None:
                                 fit=mosaic_fit,
                                 dim_z2=dim_z2,
                                 window_out=mosaic_window,
+                                z_sel=z_sel,
+                                z2_sel=z2_sel,
                             ),
                         )
                         rgba = _composite_mosaic_overlays(
@@ -748,6 +754,7 @@ def register_websocket_routes(app) -> None:
                             float(msg.get("overlay_alpha", 0.45)), msg.get("overlay_alphas"),
                             bool(msg.get("overlay_outline", False)), dim_x, dim_y, dim_z,
                             idx_tuple, session.shape, mosaic_cols, dim_z2=dim_z2,
+                            z_sel=z_sel, z2_sel=z2_sel,
                         )
                         h, w = rgba.shape[:2]
                         if mosaic_window:
@@ -961,7 +968,7 @@ def register_websocket_routes(app) -> None:
                             colormap=colormap, dr=dr, complex_mode=complex_mode,
                             log_scale=log_scale, mosaic_cols=mosaic_cols,
                             vmin_override=vmin_override, vmax_override=vmax_override,
-                            fit=mosaic_fit, dim_z2=dim_z2,
+                            fit=mosaic_fit, dim_z2=dim_z2, z_sel=z_sel, z2_sel=z2_sel,
                         ),
                     )
                 stack_axes = tuple(getattr(session.data, "_stack_axes", ()))

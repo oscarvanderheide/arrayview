@@ -12,6 +12,7 @@ from arrayview._render import (
     LUTS,
     _build_mosaic_grid,
     mosaic_tile_indices,
+    parse_mosaic_sel,
     _compute_vmin_vmax,
     _ensure_lut,
     _init_luts,
@@ -87,6 +88,8 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
         slice_dim: int = -1,
         dim_z: int = -1,
         dim_z2: int = -1,
+        z_sel: str | None = None,
+        z2_sel: str | None = None,
         complex_mode: int = 0,
         log_scale: bool = False,
         vmin_override: float | None = None,
@@ -172,6 +175,8 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
                     vmax_override=vmax_override,
                 )
             else:
+                zs = parse_mosaic_sel(z_sel, session.shape[dim_z])
+                z2s = parse_mosaic_sel(z2_sel, session.shape[dim_z2]) if dim_z2 >= 0 else None
                 rgba = render_mosaic(
                     session,
                     dim_x,
@@ -186,11 +191,13 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
                     vmin_override=vmin_override,
                     vmax_override=vmax_override,
                     dim_z2=dim_z2,
+                    z_sel=zs,
+                    z2_sel=z2s,
                 )
                 rgba = _composite_mosaic_overlays(
                     rgba, overlay_sid, overlay_colors, overlay_alpha, overlay_alphas,
                     overlay_outline, dim_x, dim_y, dim_z, idx_tuple, session.shape,
-                    mosaic_cols, dim_z2=dim_z2,
+                    mosaic_cols, dim_z2=dim_z2, z_sel=zs, z2_sel=z2s,
                 )
                 if vmin_override is not None and vmax_override is not None:
                     vmin, vmax = float(vmin_override), float(vmax_override)
@@ -198,7 +205,7 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
                     frames_raw = [
                         extract_slice(session, dim_x, dim_y, tile)
                         for tile in mosaic_tile_indices(
-                            session.shape, dim_z, dim_z2, idx_tuple
+                            session.shape, dim_z, dim_z2, idx_tuple, zs, z2s
                         )
                     ]
                     frames = [apply_complex_mode(frame, complex_mode) for frame in frames_raw]

@@ -5613,6 +5613,12 @@
             animation-delay: calc(var(--sp-i, 0) * 24ms);
         }
         @keyframes spread-picker-cut { from { gap: 0; } }
+        /* Hold-z step strip: each choice shows its first 16 slices, the tiled ones bright. */
+        .mosaic-step { --sp-cell: 54px; }
+        .mosaic-step__bars { display: flex; gap: 1px; height: 10px; }
+        .mosaic-step__bars i { width: 2px; height: 100%; border-radius: 0.5px; background: var(--text); opacity: 0.18; }
+        .mosaic-step__bars i.on { opacity: 0.6; }
+        .spread-picker__opt.is-selected .mosaic-step__bars i.on { background: var(--active-dim); opacity: 1; }
         @media (prefers-reduced-motion: reduce) {
             .spread-picker, .spread-picker.is-visible, .spread-picker__glow { transition: none; }
             .spread-picker.is-visible .spread-picker__frame,
@@ -18753,6 +18759,7 @@
                     slice_dim: String(current_slice_dim),
                 });
                 if (dim_z >= 0 && _mosaicColsParam() != null) params.set('mosaic_cols', String(_mosaicColsParam()));
+                if (dim_z >= 0) { const ms = _mosaicSelParams(); if (ms.z_sel) params.set('z_sel', ms.z_sel); if (ms.z2_sel) params.set('z2_sel', ms.z2_sel); }
                 const _hasManualWindow = manualVmin !== null || manualVmax !== null;
                 const _effectiveVmin = _hasManualWindow ? (manualVmin ?? currentVmin) : null;
                 const _effectiveVmax = _hasManualWindow ? (manualVmax ?? currentVmax) : null;
@@ -19488,7 +19495,7 @@
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
-                    dim_x, dim_y, dim_z, dim_z2: _mosaicDim2(),
+                    dim_x, dim_y, dim_z, dim_z2: _mosaicDim2(), ..._mosaicSelParams(),
                     mosaic_cols: dim_z >= 0 ? _mosaicColsParam() : null,
                     indices: [...indices],
                     colormap: currentColormap(),
@@ -21916,7 +21923,7 @@
                 const byK = new Map();
                 for (const row of (res && res.rows) || []) {
                     const t = row.indices || [];
-                    byK.set(z2 >= 0 ? t[z2] * shape[dim_z] + t[dim_z] : t[dim_z], row);
+                    if (_mosaicKOf(t) >= 0) byK.set(_mosaicKOf(t), row);
                 }
                 roi.paneStats = panes.map(p => ({ key: p.key, label: p.label, stats: byK.get(p.k) || null }));
                 roi.stats = (res && res.stats) || null;
@@ -24688,7 +24695,8 @@
         }
 
         function _dimIndexDisplay(i, value, maxValue, active) {
-            const pending = active && sliceJumpBuffer.length > 0;
+            const pending = sliceJumpBuffer.length > 0
+                && (sliceJumpBuffer.includes(':') ? i === _mosaicRangeDim() : active);
             const shownValue = pending ? sliceJumpBuffer : value;
             const cls = pending ? 'dim-idx dim-idx-pending' : 'dim-idx';
             return `<span class="${cls}">${_dimIndexHtml(shownValue, maxValue)}</span>`;
@@ -24795,7 +24803,12 @@
                     const glyph = i === _mosaicAcross() ? '→' : i === _mosaicDown() ? '↓' : '';
                     // Across is the same ↓ glyph turned, so both arrows match.
                     const letter = glyph ? `<span class="dim-axis-letter dim-mode-letter${glyph === '→' ? ' dim-mosaic-across' : ''}">↓</span>` : '<span class="dim-axis-letter">z</span>';
-                    const inner = `${letter}<span class="dim-slash">/</span><span class="dim-size" id="dim-${k}-size">${sizeOf(i)}</span>`;
+                    // A thinned dim shows which slices it tiles, as typed (10:60:2).
+                    const sel = _mosaicSel(i);
+                    const typing = sliceJumpBuffer.includes(':') && i === _mosaicRangeDim();
+                    const rng = typing ? `<span class="dim-idx dim-idx-pending">${sliceJumpBuffer}</span>`
+                        : sel.thinned ? `<span class="dim-idx">${_mosaicSelText(sel)}</span>` : '';
+                    const inner = `${letter}${rng ? '&#8202;' + rng : ''}<span class="dim-slash">/</span><span class="dim-size" id="dim-${k}-size">${sizeOf(i)}</span>`;
                     return (active || playing) ? `<span class="spatial-dim ${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
@@ -26465,6 +26478,7 @@
                 dim_z,
                 dim_z2,
                 mosaicLayout,
+                mosaicPick: { ...mosaicPick },
                 current_slice_dim,
                 activeDim,
                 viewMemory: { ..._viewMemory },
@@ -26578,6 +26592,12 @@
             dim_z2 = Number.isInteger(s.dim_z2) && dim_z >= 0 && s.dim_z2 >= 0 && s.dim_z2 < shape.length
                 && ![dim_x, dim_y, dim_z].includes(s.dim_z2) ? s.dim_z2 : -1;
             mosaicLayout = ['square', 'row', 'col', 'grid'].includes(s.mosaicLayout) ? s.mosaicLayout : 'square';
+            mosaicPick = {};
+            if (s.mosaicPick && typeof s.mosaicPick === 'object') {
+                for (const [d, v] of Object.entries(s.mosaicPick)) {
+                    if (Number(d) >= 0 && Number(d) < shape.length && v && [v.start, v.stop, v.step].every(Number.isInteger)) mosaicPick[d] = v;
+                }
+            }
             if (
                 Number.isInteger(s.current_slice_dim)
                 && s.current_slice_dim >= 0
@@ -26705,7 +26725,7 @@
         const _REMEMBERED_VIEW_KEYS = [
             'colormap_idx', 'customColormap', 'indices', 'logScale', 'cbTickLevel',
             'projectionMode', 'projectionDim', 'complexMode', 'complexModeEverUsed',
-            'flip_x', 'flip_y', 'flipDims', 'dim_x', 'dim_y', 'dim_z', 'dim_z2', 'mosaicLayout',
+            'flip_x', 'flip_y', 'flipDims', 'dim_x', 'dim_y', 'dim_z', 'dim_z2', 'mosaicLayout', 'mosaicPick',
             'current_slice_dim', 'activeDim', 'viewMemory', 'userAnatomy', 'userVoxelSizes',
             'viewMode', 'mvDims', 'orthoLayoutMode', 'qmriDim', 'manualVmin', 'manualVmax',
         ];
@@ -27235,7 +27255,7 @@
             const _effectiveVmax = _hasManualWindow ? (manualVmax ?? currentVmax) : null;
             ws.send(JSON.stringify({
                 seq: wsSentSeq,
-                dim_x, dim_y, dim_z, dim_z2: _mosaicDim2(),
+                dim_x, dim_y, dim_z, dim_z2: _mosaicDim2(), ..._mosaicSelParams(),
                 mosaic_cols: dim_z >= 0 ? _mosaicColsParam() : null,
                 indices: [...indices],
                 colormap: currentColormap(),
@@ -30982,12 +31002,12 @@
             let rows, cols, n;
             if (z2 >= 0) {
                 // Two dims: dim_z across, the second down (server mosaic_grid_cols).
-                cols = shape[dim_z]; rows = shape[z2]; n = rows * cols;
+                cols = _mosaicSel(dim_z).n; rows = _mosaicSel(z2).n; n = rows * cols;
             } else if (lay === 'row' || lay === 'col') {
-                n = shape[dim_z];
+                n = _mosaicSel(dim_z).n;
                 [rows, cols] = lay === 'row' ? [1, n] : [n, 1];
             } else {
-                n = shape[dim_z];
+                n = _mosaicSel(dim_z).n;
                 rows = Math.floor(Math.sqrt(n));
                 cols = Math.floor(n / rows);
                 while (rows * cols < n) cols++;
@@ -31015,7 +31035,47 @@
         /** Columns the server lays the main mosaic out with (null: near-square). */
         function _mosaicColsParam() {
             const lay = _mosaicArrange();
-            return lay === 'row' || lay === 'grid' ? shape[dim_z] : lay === 'col' ? 1 : null;
+            return lay === 'row' || lay === 'grid' ? _mosaicSel(dim_z).n : lay === 'col' ? 1 : null;
+        }
+
+        // Thinned mosaic dims: dim -> {start, stop, step} (stop exclusive), set by
+        // holding z or typing a slice like 10:60:2 on the dim. Absent: every slice.
+        // Only the plain single-view mosaic thins; other views show every slice.
+        let mosaicPick = {};
+        function _mosaicSel(d) {
+            const N = Math.max(1, Number(shape[d]) || 1);
+            const p = d >= 0 && _mosaicGridPlain() ? mosaicPick[d] : null;
+            let start = 0, stop = N, step = 1;
+            if (p) {
+                step = Math.max(1, Math.floor(p.step) || 1);
+                start = Math.min(Math.max(0, Math.floor(p.start) || 0), N - 1);
+                stop = Math.min(Math.max(start + 1, Math.floor(p.stop) || N), N);
+            }
+            const n = Math.ceil((stop - start) / step);
+            const thinned = !(start === 0 && stop === N && step === 1);
+            return {
+                start, stop, step, n, N, thinned,
+                // Every slice of the dim, only thinned by the step (phase = start).
+                whole: start < step && stop > N - step,
+                at: k => start + k * step,
+                // Nearest shown tile for slice i.
+                near: i => Math.max(0, Math.min(n - 1, Math.round((i - start) / step))),
+                has: i => i >= start && i < stop && (i - start) % step === 0,
+                param: thinned ? `${start}:${stop}:${step}` : '',
+            };
+        }
+        // The z_sel / z2_sel request fields ('' = every slice).
+        function _mosaicSelParams() {
+            const z2 = _mosaicDim2();
+            return { z_sel: dim_z >= 0 ? _mosaicSel(dim_z).param : '', z2_sel: z2 >= 0 ? _mosaicSel(z2).param : '' };
+        }
+        /** Thin mosaic dim d to `pick` (null: every slice) and keep the slice
+         *  you are on among the shown ones. Does not redraw. */
+        function _mosaicSetPick(d, pick) {
+            if (pick && !(pick.start === 0 && pick.stop >= shape[d] && pick.step <= 1)) mosaicPick[d] = { ...pick };
+            else delete mosaicPick[d];
+            const sel = _mosaicSel(d);
+            indices[d] = sel.at(sel.near(Number(indices[d]) || 0));
         }
         // Dims laid out across / down by Shift+→ / Shift+↓ (-1: none).
         function _mosaicAcross() { const l = _mosaicArrange(); return l === 'row' || l === 'grid' ? dim_z : -1; }
@@ -31081,6 +31141,241 @@
             return true;
         }
 
+        // ── Hold-z slice step picker ─────────────────────────────────
+        // Tile every slice, or every 2nd / 3rd / 4th / 8th / 16th / 32nd, each
+        // shown with the tile count it gives. Like the s strip: holding z opens
+        // it and releasing z applies the pick. On a dim too big to tile whole,
+        // z opens it at once on the step that gives at most 32 tiles, and it
+        // stays until z, Enter, a digit or a click takes a step (Esc cancels).
+        // A tap of z otherwise turns the mosaic on / off as before.
+        const _MOSAIC_STEPS = [1, 2, 3, 4, 8, 16, 32];
+        const _MOSAIC_BIG = 32;
+        const _zPick = {
+            down: false, downAt: 0, timer: null, active: false, stay: false,
+            touched: false, dim: -1, steps: [], sel: 0,
+            el: null, shown: false, covered: [], mx: 0, my: 0, moved: false,
+        };
+
+        // Dim a z press thins: the mosaic's (the selected one of a grid), or with
+        // no mosaic the dim z would tile. -1 where the strip does not apply.
+        function _zPickDim() {
+            if (!_mosaicGridPlain() || qmriActive || activeDim === VFIELD_T_DIM || shape.length < 3) return -1;
+            const d = dim_z >= 0 ? (_isMosaicDim(activeDim) ? activeDim : dim_z) : current_slice_dim;
+            return d >= 0 && d < shape.length && d !== dim_x && d !== dim_y ? d : -1;
+        }
+        function _zPickSteps(d) {
+            return _MOSAIC_STEPS.filter(k => k === 1 || Math.ceil(shape[d] / k) >= 2);
+        }
+
+        // z went down: true when the press is ours.
+        function _zPickDown(e) {
+            const p = _zPick;
+            if (e.repeat) return p.down;
+            const d = _zPickDim();
+            if (d < 0 || _zPickSteps(d).length < 2) return false;
+            p.down = true;
+            p.downAt = performance.now();
+            clearTimeout(p.timer);
+            p.timer = null;
+            if (dim_z < 0 && _mosaicSel(d).n > _MOSAIC_BIG) _zPickOpen(d, true);
+            else p.timer = setTimeout(() => { p.timer = null; if (p.down) _zPickOpen(d, false); }, _SPREAD_HOLD_MS);
+            return true;
+        }
+
+        function _zPickUp() {
+            const p = _zPick;
+            if (!p.down) return;
+            p.down = false;
+            const tap = p.timer !== null;
+            clearTimeout(p.timer);
+            p.timer = null;
+            if (p.active) {
+                // Opened for a big dim, it stays up unless z was held and a step picked.
+                const held = performance.now() - p.downAt >= _SPREAD_HOLD_MS;
+                if (!p.stay || (held && p.touched)) _zPickClose(true);
+                return;
+            }
+            if (tap) { _runCommand('slice.toggleMosaic'); _spreadPickEmit('slice.toggleMosaic'); }
+        }
+
+        function _zPickOpen(d, stay) {
+            const p = _zPick;
+            p.dim = d;
+            p.steps = _zPickSteps(d);
+            const cur = _mosaicSel(d);
+            const fit = p.steps.find(k => Math.ceil(shape[d] / k) <= _MOSAIC_BIG) ?? p.steps[p.steps.length - 1];
+            // A typed step not on offer: the nearest smaller one.
+            p.sel = Math.max(0, p.steps.indexOf(stay ? fit : p.steps.filter(k => k <= cur.step).pop()));
+            p.stay = stay;
+            p.mx = _lastMouseX; p.my = _lastMouseY; p.moved = false;
+            p.touched = false;
+            p.active = true;
+            _reconcileZPicker();
+        }
+
+        function _zPickClose(commit) {
+            const p = _zPick;
+            if (!p.active) return;
+            p.active = false;
+            _reconcileZPicker();
+            if (commit) _mosaicApplyStep(p.dim, p.steps[p.sel]);
+        }
+
+        function _zPickSelect(i) {
+            const p = _zPick;
+            i = Math.max(0, Math.min(p.steps.length - 1, i));
+            p.touched = true;
+            if (i === p.sel) return;
+            p.sel = i;
+            _reconcileZPicker();
+        }
+
+        // Tile counts of each step for dim d (a typed range keeps its ends).
+        function _zPickCount(d, step) {
+            const s = _mosaicSel(d);
+            return s.thinned && !s.whole ? Math.ceil((s.stop - s.start) / step) : Math.ceil(shape[d] / step);
+        }
+
+        function _reconcileZPicker() {
+            const p = _zPick;
+            if (!p.el) {
+                if (!p.active) return;
+                const el = document.createElement('div');
+                el.className = 'spread-picker mosaic-step';
+                el.addEventListener('click', (e) => {
+                    const opt = e.target.closest('.spread-picker__opt');
+                    if (!opt || !p.active) return;
+                    p.sel = Number(opt.dataset.i);
+                    _zPickClose(true);
+                });
+                el.addEventListener('mousemove', (e) => {
+                    const opt = e.target.closest('.spread-picker__opt');
+                    if (!opt || !p.active) return;
+                    if (!p.moved && Math.hypot(e.clientX - p.mx, e.clientY - p.my) < 4) return;
+                    p.moved = true;
+                    _zPickSelect(Number(opt.dataset.i));
+                });
+                document.body.appendChild(el);
+                p.el = el;
+            }
+            const el = p.el;
+            if (p.active && !p.shown) {
+                const d = p.dim, n = shape[d];
+                const bars = k => Array.from({ length: 16 }, (_, j) => `<i${j % k === 0 ? ' class="on"' : ''}></i>`).join('');
+                const go = p.stay ? '<b>z</b> again or <b>Enter</b> to tile · <b>Esc</b> cancels' : 'release <b>z</b> to apply · <b>Esc</b> cancels';
+                el.innerHTML = `<div class="spread-picker__title">${p.stay ? `${n} slices is a lot — tile every how many?` : 'Tile every how many slices?'}</div>`
+                    + '<div class="spread-picker__opts"><div class="spread-picker__glow"></div>' + p.steps.map((k, i) =>
+                    `<div class="spread-picker__opt" data-i="${i}" style="--sp-i:${i}"><div class="mosaic-step__bars">${bars(k)}</div>`
+                    + `<span>${k === 1 ? 'all' : '1 in ' + k}</span><span>${_zPickCount(d, k)}</span></div>`).join('')
+                    + `</div><div class="spread-picker__hint">${go}</div>`
+                    + '<div class="spread-picker__hint">then scroll to slide them by one · or type a range like <b>10:60:2</b> <b>Enter</b></div>';
+            }
+            if (p.active && !el.classList.contains('is-visible')) void el.offsetWidth;
+            el.classList.toggle('is-visible', p.active);
+            el.setAttribute('aria-hidden', p.active ? 'false' : 'true');
+            if (p.active !== p.shown) {
+                p.shown = p.active;
+                if (p.active) _spreadPickPlace(el);
+                p.covered.forEach(a => { a.onfinish = () => a.cancel(); a.reverse(); });
+                p.covered = p.active ? _fadeChromeUnder(el) : [];
+            }
+            if (!p.active) return;
+            el.style.setProperty('--sp-sel', p.sel);
+            el.querySelectorAll('.spread-picker__opt').forEach((o, i) => o.classList.toggle('is-selected', i === p.sel));
+        }
+
+        function _zPickKey(e) {
+            const p = _zPick, k = e.key;
+            if (!p.active) return false;
+            if (k === 'Escape') { _zPickClose(false); return true; }
+            if (k === 'Enter') { _zPickClose(true); return true; }
+            if (k === 'ArrowLeft' || k === 'ArrowDown' || k === 'h' || k === 'j') { _zPickSelect(p.sel - 1); return true; }
+            if (k === 'ArrowRight' || k === 'ArrowUp' || k === 'l' || k === 'k') { _zPickSelect(p.sel + 1); return true; }
+            if (/^[1-9]$/.test(k)) {
+                const i = p.steps.indexOf(Number(k));
+                if (i >= 0) { _zPickSelect(i); if (!p.down) _zPickClose(true); }
+                return true;
+            }
+            if (k === 'z') {
+                // z again takes the step a stay-up strip offers; while held it only repeats.
+                if (!p.down && !e.repeat) _zPickClose(true);
+                return true;
+            }
+            if (!p.down && !['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'].includes(k)) _zPickClose(false);
+            return false;
+        }
+
+        // Tile every `step`-th slice of dim d: a typed range keeps its ends,
+        // otherwise the whole dim, lined up on the slice you are on.
+        function _mosaicApplyStep(d, step) {
+            const s = _mosaicSel(d), cur = Number(indices[d]) || 0;
+            _mosaicApplyPick(d, s.thinned && !s.whole
+                ? { start: s.start, stop: s.stop, step }
+                : { start: cur % step, stop: shape[d], step });
+        }
+        // Thin dim d to `pick` and show it: redraw the mosaic, or with none
+        // tile d (it is the dim z would tile).
+        function _mosaicApplyPick(d, pick) {
+            _mosaicSetPick(d, pick);
+            if (dim_z < 0) {
+                current_slice_dim = d;
+                _afterGlide(_mosaicToggle);
+                _spreadPickEmit('slice.toggleMosaic');
+                return;
+            }
+            renderInfo();
+            updateView(); triggerPreload();
+            saveState();
+        }
+
+        // Typed range (digits and :, then Enter): the dim it thins. With a
+        // mosaic, the selected mosaic dim or the across one; with none, the
+        // selected dim, which it then tiles.
+        function _mosaicRangeDim() {
+            if (dim_z >= 0) return _isMosaicDim(activeDim) ? activeDim : dim_z;
+            const d = activeDim >= 0 && activeDim < shape.length ? activeDim : current_slice_dim;
+            return d !== dim_x && d !== dim_y ? d : -1;
+        }
+        // "a:b:c" in the slice numbers the dim bar shows (from 1, b included).
+        // Blank parts: a from the first, b to the last, c every slice.
+        function _mosaicRangeCommit(buf) {
+            const d = _mosaicRangeDim();
+            if (d < 0 || !_mosaicGridPlain() || qmriActive || shape.length < 3) { showToast('a range thins a mosaic: single view only'); return; }
+            const N = Number(shape[d]);
+            const parts = buf.split(':');
+            const num = (v, dflt) => v === '' || v === undefined ? dflt : parseInt(v, 10);
+            const a = num(parts[0], 1), b = Math.min(N, num(parts[1], N)), c = num(parts[2], 1);
+            if (!(a >= 1 && a <= N && b >= a && c >= 1)) { showToast(`range ${buf}: slices go 1–${N}`); return; }
+            _mosaicApplyPick(d, { start: a - 1, stop: b, step: c });
+        }
+        // The dim bar text of a thinned dim, in the same numbers as typed.
+        function _mosaicSelText(sel) {
+            const a = sel.start + 1;
+            if (sel.whole) return `${a}::${sel.step}`;
+            const last = sel.at(sel.n - 1) + 1;
+            return sel.step === 1 ? `${a}:${last}` : `${a}:${last}:${sel.step}`;
+        }
+
+        // Scroll over a thinned mosaic: the shown slices move by one. A whole
+        // dim taken every few slices cycles which ones; a range slides along
+        // the dim and stops at either end. The tile you are on stays put.
+        function _mosaicShift(d, delta) {
+            const s = _mosaicSel(d);
+            if (!s.thinned) return false;
+            let pick;
+            if (s.whole) pick = { start: ((s.start + delta) % s.step + s.step) % s.step, stop: s.N, step: s.step };
+            else if (s.start + delta >= 0 && s.stop + delta <= s.N) pick = { start: s.start + delta, stop: s.stop + delta, step: s.step };
+            else return true;
+            const k = s.near(Number(indices[d]) || 0);
+            mosaicPick[d] = pick;
+            const ns = _mosaicSel(d);
+            indices[d] = ns.at(Math.min(k, ns.n - 1));
+            renderInfo();
+            updateView();
+            saveState();
+            return true;
+        }
+
         /** Shift+→ / Shift+↓ on the selected dim: lay it out across / down, or
          *  take it out if it already is. Shift+← / Shift+↑ take the across /
          *  down dim out wherever the selection is. A z mosaic is replaced.
@@ -31108,8 +31403,8 @@
                 }
             }
             if (removed < 0 && !(dir === 'across'
-                ? _mosaicSizeOk(shape[across], 6, `${shape[across]} tiles across`, shape[across] * (down >= 0 ? shape[down] : 1), 'Shift+→', `${dir}:${d}`)
-                : _mosaicSizeOk(shape[down], 4, `${shape[down]} rows down`, shape[down] * (across >= 0 ? shape[across] : 1), 'Shift+↓', `${dir}:${d}`))) return;
+                ? _mosaicSizeOk(_mosaicSel(across).n, 6, `${_mosaicSel(across).n} tiles across`, _mosaicSel(across).n * (down >= 0 ? _mosaicSel(down).n : 1), 'Shift+→', `${dir}:${d}`)
+                : _mosaicSizeOk(_mosaicSel(down).n, 4, `${_mosaicSel(down).n} rows down`, _mosaicSel(down).n * (across >= 0 ? _mosaicSel(across).n : 1), 'Shift+↓', `${dir}:${d}`))) return;
             const commit = () => {
                 if (across >= 0 && down >= 0) { dim_z = across; dim_z2 = down; mosaicLayout = 'grid'; }
                 else if (across >= 0 || down >= 0) { dim_z = across >= 0 ? across : down; dim_z2 = -1; mosaicLayout = across >= 0 ? 'row' : 'col'; }
@@ -31176,7 +31471,7 @@
             commit();
             // Where each old tile sits now (-1: not in the new grid).
             const n1 = dim_z >= 0 ? _mosaicGridInfo().n : 0;
-            const kOf = ti => { const z2 = _mosaicDim2(); return z2 >= 0 ? ti[z2] * shape[dim_z] + ti[dim_z] : ti[dim_z]; };
+            const kOf = ti => _mosaicKOf(ti);
             olds.forEach(o => {
                 const k = dim_z >= 0 ? kOf(o.ti) : -1;
                 o.k = k >= 0 && k < n1 && _mosaicTileIndices(k).every((v, i) => v === o.ti[i]) ? k : -1;
@@ -31220,8 +31515,9 @@
         /** Indices of mosaic tile k (row by row, as the server lays it out). */
         function _mosaicTileIndices(k, base = indices) {
             const t = [...base], z2 = _mosaicDim2();
-            if (z2 >= 0) { t[dim_z] = k % shape[dim_z]; t[z2] = Math.floor(k / shape[dim_z]); }
-            else t[dim_z] = k;
+            const sz = _mosaicSel(dim_z);
+            if (z2 >= 0) { t[dim_z] = sz.at(k % sz.n); t[z2] = _mosaicSel(z2).at(Math.floor(k / sz.n)); }
+            else t[dim_z] = sz.at(k);
             return t;
         }
 
@@ -31248,7 +31544,7 @@
                 const tileIndices = _mosaicTileIndices(zIdx);
                 // Dim bar readout: across / down position in a two-dim grid.
                 const z2 = _mosaicDim2();
-                const hz = z2 >= 0 ? tileIndices[dim_z] : zIdx, hz2 = z2 >= 0 ? tileIndices[z2] : null;
+                const hz = tileIndices[dim_z], hz2 = z2 >= 0 ? tileIndices[z2] : null;
                 const ver = tileIndices.join(',') + ':' + dim_x + ':' + dim_y + ':' + complexMode + ':' + logScale;
                 const hkey = sid + ':' + ver;
                 const cached = _hoverSliceCache[hkey];
@@ -32503,7 +32799,8 @@
                         _mosaicNotice('already side by side', ['a mosaic here would repeat every pane', 'tap <b>s</b> for one image, then <b>z</b>']);
                         return;
                     }
-                    if (dim_z < 0 && !_mosaicSizeOk(shape[current_slice_dim], 32, `${shape[current_slice_dim]} tiles`, shape[current_slice_dim], 'z', `z:${current_slice_dim}`)) return;
+                    // The plain view thins a big dim with the hold-z strip instead.
+                    if (dim_z < 0 && _zPickDim() < 0 && !_mosaicSizeOk(shape[current_slice_dim], 32, `${shape[current_slice_dim]} tiles`, shape[current_slice_dim], 'z', `z:${current_slice_dim}`)) return;
                     _afterGlide(_mosaicToggle);
                 },
             },
@@ -33184,6 +33481,15 @@
                 when: [],
                 run: (ctx, e) => {
                     if (_segMode && sliceJumpBuffer.length === 0) { _segAccept(); return; }
+                    // Typed range (has a colon): thin the mosaic to it.
+                    if (sliceJumpBuffer.includes(':')) {
+                        const buf = sliceJumpBuffer;
+                        sliceJumpBuffer = '';
+                        if (sliceJumpTimeout) { clearTimeout(sliceJumpTimeout); sliceJumpTimeout = null; }
+                        renderInfo();
+                        _mosaicRangeCommit(buf);
+                        return;
+                    }
                     // Enter key: jump to buffered slice index (1-based input)
                     if (sliceJumpBuffer.length > 0) {
                         const targetIndex = parseInt(sliceJumpBuffer, 10) - 1;
@@ -33226,6 +33532,17 @@
                     }
                 },
             },
+            'slice.bufferRange': {
+                title: 'Type a range of slices for the mosaic (e.g. 10:60:2)',
+                when: [],
+                run: (ctx, e) => {
+                    if ((sliceJumpBuffer.match(/:/g) || []).length >= 2) return;
+                    sliceJumpBuffer += ':';
+                    renderInfo();
+                    if (sliceJumpTimeout) clearTimeout(sliceJumpTimeout);
+                    sliceJumpTimeout = setTimeout(() => { sliceJumpBuffer = ''; renderInfo(); }, 4000);
+                },
+            },
             'slice.bufferDigit': {
                 title: 'Buffer digit for slice-jump',
                 when: [],
@@ -33235,12 +33552,12 @@
                     sliceJumpBuffer += e.key;
                     renderInfo();
                     if (sliceJumpTimeout) clearTimeout(sliceJumpTimeout);
-                    // Auto-clear buffer after 2 seconds of inactivity
+                    // Auto-clear buffer after 2 seconds of inactivity (4 in a typed range)
                     sliceJumpTimeout = setTimeout(() => {
                         sliceJumpBuffer = '';
                         renderInfo();
                         showStatus('');
-                    }, 2000);
+                    }, sliceJumpBuffer.includes(':') ? 4000 : 2000);
                     showStatus(`jump to slice: ${sliceJumpBuffer}_`);
                 },
             },
@@ -33820,6 +34137,7 @@
             { key: '7', command: 'slice.bufferDigit' },
             { key: '8', command: 'slice.bufferDigit' },
             { key: '9', command: 'slice.bufferDigit' },
+            { key: ':', command: 'slice.bufferRange' },
             { key: 'Enter', command: 'modePicker.confirm' },
             { key: 'Enter', command: 'cycleOverlay.dismiss' },
             { key: 'Enter', command: 'slice.jumpCommit' },
@@ -33891,7 +34209,9 @@
                             { key: 'x / y', action: 'Change viewing dimension', hint: 'choose which axes map to horizontal and vertical' },
                             { key: 'o', action: 'Next view — axial → coronal → sagittal', hint: 'each view keeps its own r / t rotation and flip · NIfTI views are named; for other arrays Shift+A names the current view and sets the voxel size · Enter closes the view label' },
                             { key: 'Shift+D', action: 'Toggle dimbar max indices' },
-                            { key: 'z', action: 'Mosaic — tile all slices in a grid' },
+                            { key: 'z', action: 'Mosaic — tile all slices in a grid', hint: 'on a dim of more than 32 slices it first asks every how many to tile' },
+                            { key: 'z (hold)', action: 'Mosaic — tile every 2nd, 3rd, 4th … slice', hint: 'arrows, a digit or the mouse choose · release z to apply · then scrolling slides the tiled slices by one' },
+                            { key: '10:60:2 Enter', action: 'Mosaic — tile a range of slices', hint: 'first:last:every, numbered as in the dim bar · blanks mean from the start / to the end / every slice · without a mosaic it tiles the selected dim' },
                             { key: 'Shift+→ / Shift+↓', action: 'Mosaic — lay the active dim out across / down', hint: 'one dim each way makes a grid of both · again on that dim takes it out · z leaves' },
                             { key: 'Shift+← / Shift+↑', action: 'Mosaic — take the across / down dim out' },
                             { key: 's', action: 'Side by side — show the active dim in several panes', hint: 'opens a strip of pane counts at the bottom of the picture: a digit or a click takes one, arrows + Enter too · works on any non-spatial dim, including the dim of several loaded arrays · in side by side, s goes back to one image' },
@@ -36170,6 +36490,7 @@
                 if (_orthoLayoutPicker.keyEvent(e)) return;
             }
             if (_spreadPick.active && _spreadPickKey(e)) return;
+            if (_zPick.active && _zPickKey(e)) return;
             if (_histPickerActive) {
                 if (_histPickerKey(e)) return;
             }
@@ -36238,6 +36559,9 @@
             // pane count picker. Where neither applies it goes on to the dispatcher.
             if (e.key === 's' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
                 && _spreadPickDown(e)) return;
+            // Plain z: a tap tiles / untiles on release, a hold opens the slice step strip.
+            if (e.key === 'z' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
+                && !sliceJumpBuffer && _zPickDown(e)) return;
             if (dispatchCommand(e)) return;
             // Forward Cmd/Ctrl+Shift+[/] to shell for tab cycling
             const modKey = navigator.platform.includes('Mac') ? e.metaKey : e.ctrlKey;
@@ -36274,9 +36598,11 @@
         // Pane count picker: s coming up, and a click anywhere else closes it.
         window.addEventListener('keyup', (e) => {
             if (e.key === 's' || e.key === 'S') _spreadPickUp();
+            if (e.key === 'z' || e.key === 'Z') _zPickUp();
         }, true);
         window.addEventListener('mousedown', (e) => {
             if (_spreadPick.active && !_spreadPick.el.contains(e.target)) _spreadPickClose(false);
+            if (_zPick.active && !_zPick.el.contains(e.target)) _zPickClose(false);
         }, true);
 
         // Safety: if focus leaves while the cmap menu is up, cancel it;
@@ -45388,8 +45714,17 @@
 
         // Tile on screen for the current indices (row by row).
         function _mosaicTileK() {
-            const z2 = _mosaicDim2();
-            return z2 >= 0 ? Number(indices[z2]) * shape[dim_z] + Number(indices[dim_z]) : Number(indices[dim_z]);
+            const z2 = _mosaicDim2(), sz = _mosaicSel(dim_z), kz = sz.near(Number(indices[dim_z]));
+            return z2 >= 0 ? _mosaicSel(z2).near(Number(indices[z2])) * sz.n + kz : kz;
+        }
+        // Tile showing indices `ti` (-1: that slice is not shown).
+        function _mosaicKOf(ti) {
+            const z2 = _mosaicDim2(), sz = _mosaicSel(dim_z), iz = Number(ti[dim_z]);
+            if (!sz.has(iz)) return -1;
+            const kz = (iz - sz.start) / sz.step;
+            if (z2 < 0) return kz;
+            const s2 = _mosaicSel(z2), i2 = Number(ti[z2]);
+            return s2.has(i2) ? ((i2 - s2.start) / s2.step) * sz.n + kz : -1;
         }
 
         /** Single-view mosaic: one stand-in canvas per tile over the grid, so
@@ -47214,6 +47549,18 @@
                 if (_bumpDetachedDimPair(delta)) return;
             }
             if (multiViewActive) return;
+            // A thinned mosaic: scrolling moves the shown slices by one, unless
+            // the pointer is on another dim in the dim bar.
+            if (dim_z >= 0 && _mosaicGridPlain()
+                && !(hoveredDim >= 0 && !_isMosaicDim(hoveredDim) && hoveredDim !== dim_x && hoveredDim !== dim_y)) {
+                const md = [_isMosaicDim(activeDim) ? activeDim : -1, dim_z, _mosaicDim2()]
+                    .find(d => d >= 0 && _mosaicSel(d).thinned);
+                if (md !== undefined) {
+                    const dl = _wheelIndexDelta(md, e);
+                    if (dl) _mosaicShift(md, Math.sign(dl));
+                    return;
+                }
+            }
             // Prefer a hovered, non-display dim over the committed scroll dim;
             // promote it to current_slice_dim so the dim persists after unhover.
             let scrollDim = current_slice_dim;
