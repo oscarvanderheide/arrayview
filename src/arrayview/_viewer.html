@@ -1386,6 +1386,7 @@
             border-top: 1px solid var(--border-subtle); border-radius: 0 0 10px 10px;
             text-align: left; font-size: 9.5px; line-height: 13px; color: var(--muted); white-space: normal;
         }
+        #roi-toolbar.from-key .roi-menu-note, #roi-toolbar.from-key .roi-menu-pref { display: none; }
         #roi-toolbar .roi-menu-note {
             width: 0; min-width: 100%; box-sizing: border-box; padding: 6px 8px;
             border-top: 1px solid var(--border-subtle);
@@ -21188,6 +21189,8 @@
             }
             const wasVisible = bar.classList.contains('visible');
             bar.classList.toggle('visible', !!visible);
+            // Opened by holding Alt/Option: just the shapes, no footer.
+            bar.classList.toggle('from-key', _roiMenuAnchor === 'pointer');
             bar.setAttribute('aria-hidden', String(!visible));
             if (!visible) return;
             const noFill = compareActive ? 'not available side by side' : qmriActive ? 'not available in qMRI mode' : '';
