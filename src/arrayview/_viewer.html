@@ -36527,6 +36527,25 @@
                 ],
             },
             {
+                id: 'views', stage: 'single', session: 'head',
+                steps: [
+                    {
+                        key: 'v',
+                        text: 'Press v to see three planes through one point.\nClick or drag in any of them to move the point.\nPress v again to go back.',
+                        expect: ['multiview.toggle'],
+                    },
+                    {
+                        key: 's',
+                        text: 'Press s, then pick how many panes to show side by side.\nPoint at a pane: [ and ] move just that one.',
+                        note: 'Press s again to go back. Hold s for another number of panes.',
+                        expect: [
+                            'spread.toggle',
+                            'spread.adjustPaneIndex',
+                        ],
+                    },
+                ],
+            },
+            {
                 id: 'spectra', stage: 'single',
                 steps: [
                     {
@@ -36554,25 +36573,6 @@
                         key: 'I',
                         text: 'Press I (shift+i) for facts about the array.\nIt shows the shape, data type and size.\nPress I again to close it.',
                         expect: ['info.toggle'],
-                    },
-                ],
-            },
-            {
-                id: 'views', stage: 'single',
-                steps: [
-                    {
-                        key: 'v',
-                        text: 'Press v to see three planes through one point.\nClick or drag in any of them to move the point.\nPress v again to go back.',
-                        expect: ['multiview.toggle'],
-                    },
-                    {
-                        key: 's',
-                        text: 'Press s, then pick how many panes to show side by side.\nPoint at a pane: [ and ] move just that one.',
-                        note: 'Press s again to go back. Hold s for another number of panes.',
-                        expect: [
-                            'spread.toggle',
-                            'spread.adjustPaneIndex',
-                        ],
                     },
                 ],
             },
