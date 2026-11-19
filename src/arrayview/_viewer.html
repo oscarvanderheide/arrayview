@@ -1374,7 +1374,7 @@
             display: none; position: absolute; right: 0; bottom: calc(100% + 6px);
             width: 190px; padding: 6px 8px; pointer-events: none;
             background: var(--surface); border: 1px solid var(--border-subtle); border-radius: 8px;
-            color: var(--text); font-size: 10px; line-height: 13px; white-space: pre-line;
+            color: var(--text); font-size: 10px; line-height: 13px;
         }
         #roi-toolbar .roi-menu-cap.show { display: block; }
         #roi-toolbar button.roi-menu-pref {
@@ -21004,7 +21004,7 @@
             circle: ['Circle', 'drag across the region'],
             rect: ['Rectangle', 'drag from corner to corner'],
             freehand: ['Freehand', 'draw the outline around the region'],
-            floodfill: ['Flood fill', 'Hold on a pixel and drag:\nup: take in more\ndown: take in less\nright: smoother edges\nleft: sharper edges\nLet go to keep the region.'],
+            floodfill: ['Flood fill', 'Selects the connected area around a pixel whose values are close to it. Hold, then drag up/down to change sensitivity, left/right to change smoothness. A 3D region may take a moment to catch up.'],
         };
         let _roiMenuDownAt = 0;
         let _roiMenuPos = null;
@@ -21017,7 +21017,7 @@
             circle: 'Circle · drag on the image',
             rect: 'Rectangle · drag on the image',
             freehand: 'Freehand · draw the outline on the image',
-            floodfill: 'Flood fill · hold on the image, drag up to take in more, down for less, right for smoother edges, left for sharper',
+            floodfill: 'Flood fill · selects the connected area of similar values; hold, drag up/down for sensitivity, left/right for smoothness',
         };
 
         // One line per pane (side by side) or per map (qMRI) under each ROI.
@@ -29152,7 +29152,10 @@
         }
         function _requestFloodFillPreview(drag) {
             if (!drag) return;
-            _roiFloodFillLocalPreview(drag);
+            // The server's answer for these settings is already on screen
+            // (e.g. the release after holding still): don't paint the
+            // single-plane local fill back over it.
+            if (!(drag.data && _roiFloodFillDataCurrent(drag))) _roiFloodFillLocalPreview(drag);
             if (drag.pending) {
                 drag.queued = true;
                 return;

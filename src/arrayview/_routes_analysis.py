@@ -636,6 +636,9 @@ def _decode_mask_bytes(encoded: str, n: int) -> np.ndarray:
 # rescanning its value range each step is wasted work. One entry only.
 _FLOODFILL_VOLUME_CACHE: dict = {}
 _FLOODFILL_VOLUME_LOCK = threading.Lock()
+# Last scoped grow, so the release request reuses the region the last drag
+# step already grew instead of growing it again (the grow dominates release).
+_FLOODFILL_GROW_CACHE: dict = {}
 
 
 # Edge smoothing for the magic wand, a continuous level s in 0 (off) ..
@@ -825,9 +828,17 @@ def _scoped_floodfill_response(
 
     seed_z = values.index(indices[scope_dim])
     abs_tol = tolerance * abs_range
-    component, seed_val, box, crop = _grow_floodfill(
-        volume, (seed_z, py, px), abs_tol, smooth
-    )
+    grow_key = ((seed_z, py, px), float(abs_tol), float(smooth))
+    with _FLOODFILL_VOLUME_LOCK:
+        hit = _FLOODFILL_GROW_CACHE.get("entry")
+    if hit is not None and hit[0] is volume and hit[1] == grow_key:
+        component, seed_val, box, crop = hit[2]
+    else:
+        component, seed_val, box, crop = _grow_floodfill(
+            volume, (seed_z, py, px), abs_tol, smooth
+        )
+        with _FLOODFILL_VOLUME_LOCK:
+            _FLOODFILL_GROW_CACHE["entry"] = (volume, grow_key, (component, seed_val, box, crop))
     roi_values = volume[box][crop]
     finite = roi_values[np.isfinite(roi_values)]
 
@@ -859,6 +870,7 @@ def _scoped_floodfill_response(
     # Release: the drag is over, so free the held volume.
     with _FLOODFILL_VOLUME_LOCK:
         _FLOODFILL_VOLUME_CACHE.clear()
+        _FLOODFILL_GROW_CACHE.clear()
 
     slices = []
     scoped_values = []
