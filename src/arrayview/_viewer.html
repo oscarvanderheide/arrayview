@@ -948,25 +948,35 @@
                   pointer-events: none; z-index: 6; max-width: calc(100vw - 116px); overflow: hidden;
                   text-overflow: ellipsis; opacity: 0; transition: opacity 0.3s ease; }
         #toast.visible { opacity: 1; }
-        /* Magic wand: both drag readings beside the cursor while the seed is held. */
+        /* Magic wand: a square beside the cursor while the seed is held, in the
+           window/level HUD's style. Dot: x = smoothing (0..5), y = sensitivity
+           (log, 1 %..100 %, up = more). A 3D grow adds a thin bar under it. */
         #roi-fill-hud {
             position: fixed; z-index: 100; display: none; pointer-events: none;
-            padding: 6px 9px; border-radius: var(--radius); background: var(--surface);
-            border: 1px solid var(--border); color: var(--text);
-            font: 11px ui-monospace, monospace; line-height: 1.6; white-space: nowrap;
+            flex-direction: column; align-items: center; gap: 3px;
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
+            line-height: 1; white-space: nowrap;
         }
-        #roi-fill-hud.visible { display: block; }
-        #roi-fill-hud .ax { color: var(--muted); display: inline-block; width: 1.4em; }
-        #roi-fill-hud .lbl { color: var(--muted); display: inline-block; width: 7.5em; }
-        #roi-fill-hud .val { color: var(--active-dim); font-weight: bold; }
-        #roi-fill-hud .track { display: inline-block; width: 46px; height: 4px; margin-right: 6px; border-radius: 2px;
-            background: var(--border); vertical-align: middle; overflow: hidden; }
-        #roi-fill-hud .track > span { display: block; height: 100%; background: var(--active-dim); }
-        #roi-fill-hud .fill-3d { display: none; }
-        #roi-fill-hud.is-3d .fill-3d { display: block; }
-        #roi-fill-hud .fill-3d .val { font-weight: normal; }
-        #roi-fill-hud.busy-3d .fill-3d .val { color: var(--muted); animation: roi-fill-busy 1s ease-in-out infinite alternate; }
-        @keyframes roi-fill-busy { from { opacity: 1; } to { opacity: .35; } }
+        #roi-fill-hud.visible { display: flex; }
+        #roi-fill-hud svg { display: block; filter: drop-shadow(0 0 1px rgba(0,0,0,0.75)) drop-shadow(0 0 2.5px rgba(0,0,0,0.5)); }
+        #roi-fill-hud .fill-box { fill: rgba(0,0,0,0.32); stroke: rgba(255,255,255,0.65); stroke-width: 1.1; }
+        #roi-fill-hud .fill-area { fill: color-mix(in srgb, var(--active-dim) 30%, transparent); }
+        #roi-fill-hud .fill-guide { stroke: var(--active-dim); stroke-width: 1; opacity: 0.7; }
+        #roi-fill-hud .fill-dot { fill: var(--active-dim); stroke: #000; stroke-width: 0.8; }
+        #roi-fill-hud .fill-hint {
+            display: flex; align-items: center; gap: 4px;
+            font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+            color: #fff; -webkit-text-stroke: var(--on-image-stroke); paint-order: stroke fill;
+        }
+        #roi-fill-hud .fill-arrow { font-size: 1.6em; line-height: 1; position: relative; top: 0.08em; }
+        #roi-fill-hud .fill-load {
+            display: none; width: 60px; height: 3px; margin-top: 2px; border-radius: 2px; overflow: hidden;
+            background: rgba(0,0,0,0.45); box-shadow: 0 0 0 1px rgba(0,0,0,0.6);
+        }
+        #roi-fill-hud.is-3d .fill-load { display: block; }
+        #roi-fill-hud .fill-load > span { display: block; height: 100%; width: 100%; background: var(--active-dim); }
+        #roi-fill-hud.busy-3d .fill-load > span { width: 35%; animation: roi-fill-load 0.9s ease-in-out infinite; }
+        @keyframes roi-fill-load { from { transform: translateX(-100%); } to { transform: translateX(286%); } }
         body.zen-mode #toast { display: none; }
         #pixel-info { display: none; } /* replaced by .cv-pixel-info per-canvas overlays */
         .cv-pixel-info {
@@ -28936,32 +28946,42 @@
             _roiFillHudWasOn = active;
             let hud = document.getElementById('roi-fill-hud');
             if (!hud && !active) return;
+            const S = 56, M = 2; // square side and margin, px
             if (!hud) {
                 hud = document.createElement('div');
                 hud.id = 'roi-fill-hud';
-                hud.innerHTML = '<div><span class="ax">↕</span><span class="lbl">sensitivity</span><span class="val fill-tol"></span></div>'
-                    + '<div><span class="ax">↔</span><span class="lbl">smoothing</span><span class="track"><span></span></span><span class="val fill-sm"></span></div>'
-                    + '<div class="fill-3d"><span class="ax">⧉</span><span class="lbl">3D region</span><span class="val fill-3d-state"></span></div>';
+                hud.innerHTML = '<span class="fill-hint">sensitivity<span class="fill-arrow">\u2195</span></span>'
+                    + `<svg width="${S + 2 * M}" height="${S + 2 * M}" viewBox="0 0 ${S + 2 * M} ${S + 2 * M}">`
+                    + `<rect class="fill-box" x="${M}" y="${M}" width="${S}" height="${S}" rx="2"/>`
+                    + `<rect class="fill-area" x="${M}" y="${M}" width="0" height="0"/>`
+                    + '<line class="fill-guide fill-gx"/><line class="fill-guide fill-gy"/>'
+                    + '<circle class="fill-dot" r="3"/></svg>'
+                    + '<span class="fill-hint">smoothing<span class="fill-arrow">\u2194</span></span>'
+                    + '<span class="fill-load"><span></span></span>';
                 document.body.appendChild(hud);
             }
             hud.classList.toggle('visible', active);
             if (!active) return;
             if (!wasActive && is3d) _pulseFloodfillScopeDims(drag);
-            const pct = drag.tolerance * 100;
-            hud.querySelector('.fill-tol').textContent = `${pct < 10 ? pct.toFixed(1) : Math.round(pct)}%`;
-            const sm = drag.smooth || 0;
-            hud.querySelector('.track > span').style.width = `${sm / 5 * 100}%`;
-            hud.querySelector('.fill-sm').textContent = sm ? sm.toFixed(1) : 'off';
+            const fx = Math.max(0, Math.min(1, (drag.smooth || 0) / 5));
+            const fy = Math.max(0, Math.min(1, Math.log(drag.tolerance / 0.01) / Math.log(100)));
+            const dx = M + fx * S, dy = M + (1 - fy) * S, bottom = M + S;
+            const area = hud.querySelector('.fill-area');
+            area.setAttribute('y', dy); area.setAttribute('width', fx * S); area.setAttribute('height', bottom - dy);
+            const gx = hud.querySelector('.fill-gx'), gy = hud.querySelector('.fill-gy');
+            gx.setAttribute('x1', M); gx.setAttribute('x2', dx); gx.setAttribute('y1', dy); gx.setAttribute('y2', dy);
+            gy.setAttribute('x1', dx); gy.setAttribute('x2', dx); gy.setAttribute('y1', dy); gy.setAttribute('y2', bottom);
+            const dot = hud.querySelector('.fill-dot');
+            dot.setAttribute('cx', dx); dot.setAttribute('cy', dy);
             // The plane on screen is drawn at once; the 3D region trails it.
             const ready = !!drag.data && _roiFloodFillDataCurrent(drag) && !(drag.released && drag.dataLite);
             hud.classList.toggle('is-3d', is3d);
             hud.classList.toggle('busy-3d', is3d && !ready);
-            hud.querySelector('.fill-3d-state').textContent = !is3d ? '' : ready ? 'up to date' : drag.released ? 'finishing…' : 'catching up…';
             const w = hud.offsetWidth, h = hud.offsetHeight;
             const cx = drag.clientX, cy = drag.clientY;
             const x = cx + 22 + w <= window.innerWidth - 8 ? cx + 22 : cx - w - 22;
             hud.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, x))}px`;
-            hud.style.top = `${Math.max(8, Math.min(window.innerHeight - h - 8, cy + 18))}px`;
+            hud.style.top = `${Math.max(8, Math.min(window.innerHeight - h - 8, cy - h / 2))}px`;
         }
         function _pulseFloodfillScopeDims(drag) {
             const info = document.getElementById('info');
