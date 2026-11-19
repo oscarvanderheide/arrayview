@@ -632,8 +632,20 @@ def register_analysis_routes(app, get_session_or_404) -> None:
 def _encode_mask_b64(mask: np.ndarray, bbox: dict) -> str:
     x0, y0 = bbox["x0"], bbox["y0"]
     x1, y1 = bbox["x1"], bbox["y1"]
-    sub = mask[y0 : y1 + 1, x0 : x1 + 1].astype(np.uint8)
-    return base64.b64encode(sub.tobytes()).decode("ascii")
+    sub = mask[y0 : y1 + 1, x0 : x1 + 1]
+    # Bit-packed, lowest bit first. Readers tell packed from one-byte-per-pixel
+    # masks by length (see _decode_mask_bytes).
+    return base64.b64encode(
+        np.packbits(sub, axis=None, bitorder="little").tobytes()
+    ).decode("ascii")
+
+
+def _decode_mask_bytes(encoded: str, n: int) -> np.ndarray:
+    """Decode a base64 mask of *n* pixels, packed or one byte per pixel."""
+    raw = np.frombuffer(base64.b64decode(encoded), dtype=np.uint8)
+    if raw.size != n and raw.size == (n + 7) // 8:
+        return np.unpackbits(raw, count=n, bitorder="little").astype(bool)
+    return raw.astype(bool)
 
 
 # Last stacked volume a scoped flood fill grew through. Dragging the
@@ -782,7 +794,6 @@ def _scoped_floodfill_response(
         "mask3d_b64": base64.b64encode(
             np.packbits(component, axis=None, bitorder="little").tobytes()
         ).decode("ascii"),
-        "mask3d_bits": True,
         "mask3d_shape": [int(s) for s in component.shape],
         "grow_dim_x": int(dim_x),
         "grow_dim_y": int(dim_y),
@@ -989,8 +1000,7 @@ def _floodfill_roi_mask(
         bh = y1 - y0 + 1
         if bw <= 0 or bh <= 0:
             return mask
-        sub = np.frombuffer(base64.b64decode(encoded), dtype=np.uint8)
-        sub = sub.reshape((bh, bw)).astype(bool)
+        sub = _decode_mask_bytes(encoded, bw * bh).reshape((bh, bw))
     except Exception:
         return mask
     xa0, ya0 = max(0, x0), max(0, y0)

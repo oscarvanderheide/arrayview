@@ -20578,10 +20578,8 @@
         function _roiTransformMask(bbox, maskB64, fn) {
             const bw = bbox.x1 - bbox.x0 + 1;
             const bh = bbox.y1 - bbox.y0 + 1;
-            let raw;
-            try { raw = atob(maskB64); } catch (_e) { return null; }
-            const oldBytes = new Uint8Array(raw.length);
-            for (let i = 0; i < raw.length; i++) oldBytes[i] = raw.charCodeAt(i);
+            const oldBytes = _roiDecodeMaskBytes(maskB64, null, bw * bh);
+            if (!oldBytes) return null;
             const pts = [];
             for (let y = 0; y < bh; y++) {
                 for (let x = 0; x < bw; x++) {
@@ -29262,20 +29260,32 @@
                 const cur = indices[r.scope_dim];
                 const hit = r.slices.find(s => s && s.index === cur);
                 if (!hit || !hit.bbox || !hit.mask_b64) return null;
-                return { bbox: hit.bbox, maskBytes: _roiDecodeMaskBytes(hit.mask_b64, hit) };
+                return { bbox: hit.bbox, maskBytes: _roiDecodeMaskBytes(hit.mask_b64, hit, _roiBboxArea(hit.bbox)) };
             }
-            return { bbox: r.bbox, maskBytes: _roiDecodeMaskBytes(r.mask_b64, r) };
+            return { bbox: r.bbox, maskBytes: _roiDecodeMaskBytes(r.mask_b64, r, _roiBboxArea(r.bbox)) };
         }
         // Decode a base64 mask into a cached Uint8Array on the owner. `owner`
         // is the slice or roi carrying mask_b64 — caching avoids re-decoding
         // the same mask on every redraw.
-        function _roiDecodeMaskBytes(maskB64, owner) {
+        function _roiBboxArea(b) {
+            return b ? (b.x1 - b.x0 + 1) * (b.y1 - b.y0 + 1) : 0;
+        }
+        // Masks of `n` pixels arrive bit-packed (8 per byte, lowest bit
+        // first) or one byte per pixel; the length tells which.
+        function _roiUnpackMask(bytes, n) {
+            if (!n || bytes.length === n || bytes.length !== ((n + 7) >> 3)) return bytes;
+            const out = new Uint8Array(n);
+            for (let i = 0; i < n; i++) out[i] = (bytes[i >> 3] >> (i & 7)) & 1;
+            return out;
+        }
+        function _roiDecodeMaskBytes(maskB64, owner, n = 0) {
             if (!maskB64) return null;
             if (owner && owner._maskBytes && owner._maskB64Key === maskB64) return owner._maskBytes;
             try {
                 const raw = atob(maskB64);
-                const bytes = new Uint8Array(raw.length);
+                let bytes = new Uint8Array(raw.length);
                 for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+                bytes = _roiUnpackMask(bytes, n);
                 if (owner) { owner._maskBytes = bytes; owner._maskB64Key = maskB64; }
                 return bytes;
             } catch (_e) { return null; }
@@ -29299,15 +29309,8 @@
             if (idx >= shape[sliceAxis]) return null;
             // Lazily decode + cache the full 3D mask on the roi.
             if (!r._mask3dBytes || r._mask3dKey !== r.mask3d_b64) {
-                let bytes = _roiDecodeMaskBytes(r.mask3d_b64, null);
+                const bytes = _roiDecodeMaskBytes(r.mask3d_b64, null, r.mask3d_shape[0] * r.mask3d_shape[1] * r.mask3d_shape[2]);
                 if (!bytes) return null;
-                if (r.mask3d_bits) {
-                    // Server packs 8 voxels per byte, lowest bit first.
-                    const n = r.mask3d_shape[0] * r.mask3d_shape[1] * r.mask3d_shape[2];
-                    const out = new Uint8Array(n);
-                    for (let i = 0; i < n; i++) out[i] = (bytes[i >> 3] >> (i & 7)) & 1;
-                    bytes = out;
-                }
                 r._mask3dBytes = bytes; r._mask3dKey = r.mask3d_b64;
             }
             const bytes = r._mask3dBytes;
