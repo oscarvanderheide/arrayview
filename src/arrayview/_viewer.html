@@ -1386,6 +1386,12 @@
             border-top: 1px solid var(--border-subtle); border-radius: 0 0 10px 10px;
             text-align: left; font-size: 9.5px; line-height: 13px; color: var(--muted); white-space: normal;
         }
+        #roi-toolbar .roi-menu-note {
+            width: 0; min-width: 100%; box-sizing: border-box; padding: 6px 8px;
+            border-top: 1px solid var(--border-subtle);
+            font-size: 9.5px; line-height: 13px; color: var(--muted);
+        }
+        #roi-toolbar .roi-menu-note b { color: color-mix(in srgb, var(--text) 75%, var(--muted)); font-weight: normal; }
         #roi-toolbar button.roi-menu-pref b { color: color-mix(in srgb, var(--text) 75%, var(--muted)); font-weight: normal; }
         #roi-toolbar button.roi-menu-pref:hover { background: color-mix(in srgb, var(--surface-2) 70%, transparent); color: var(--text); }
         /* Shape button: left of the logo (and of the qMRI button when shown). */
@@ -21011,6 +21017,7 @@
             // floodfill caption is HTML (constant, no user text): spaced paragraphs.
             floodfill: ['Flood fill', '<p>Selects the connected area around a pixel whose values are close to it.</p>'
                 + '<p>Hold, then drag:<br><span class="k">up / down</span>sensitivity<br><span class="k">left / right</span>smoothness</p>'
+                + '<p>To adjust a region afterwards, click and drag inside it.</p>'
                 + '<p class="dim">A 3D region may take a moment to catch up.</p>'],
         };
         let _roiMenuDownAt = 0;
@@ -21193,6 +21200,7 @@
             }
             html = `<div class="roi-menu-row">${html}</div>`
                 + '<div class="roi-menu-cap" aria-live="polite"></div>'
+                + `<div class="roi-menu-note">Quicker: hold <b>${_ALT_KEY_NAME}</b> over the image, point at a shape, let go.</div>`
                 + '<button type="button" class="roi-menu-pref" data-action="preferences" title="Open Preferences">Change default in preferences</button>';
             if (bar._content !== html) {
                 bar._content = html;
