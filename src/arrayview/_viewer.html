@@ -225,20 +225,37 @@
         #info.param-reset-silent::before {
             transition: none !important;
         }
-        #info .playback-controls {
-            position: absolute; bottom: calc(100% + 6px); left: 50%;
-            transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px;
+        /* Play / pause / speed flash over the image centre (YouTube-style).
+           Dark scrim regardless of theme: it sits on image pixels. */
+        #playback-flash {
+            position: absolute; left: 50%; top: 50%; z-index: 40;
+            display: flex; flex-direction: column; align-items: center; gap: 10px;
             pointer-events: none; white-space: nowrap;
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
-            font-size: 10px; line-height: 10px; color: var(--muted);
             font-variant-numeric: tabular-nums;
-            opacity: 0; transition: opacity 0.35s ease;
+            /* Disc centred on the image; the label hangs below it. */
+            opacity: 0; transform: translate(-50%, -32px) scale(0.92);
+            transform-origin: 50% 32px;
+            transition: opacity 0.3s ease, transform 0.3s ease;
         }
-        #info.playback-hud-visible .playback-controls { opacity: 1; transition-duration: 0.1s; }
-        #info .playback-hint {
-            color: inherit; transition: color 0.14s ease;
+        #playback-flash.is-visible {
+            opacity: 1; transform: translate(-50%, -32px) scale(1);
+            transition-duration: 0.12s;
         }
-        #info.playback-hud-visible .playback-hint.is-pressed { color: var(--active-dim); }
+        #playback-flash .pf-disc {
+            width: 64px; height: 64px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(0, 0, 0, 0.5); color: #fff;
+            font-size: 24px; line-height: 1;
+        }
+        #playback-flash .pf-disc .pf-double { font-size: 18px; letter-spacing: -6px; margin-left: -6px; }
+        #playback-flash .pf-label {
+            padding: 4px 10px; border-radius: 11px;
+            background: rgba(0, 0, 0, 0.55); color: #fff;
+            font-size: 12px; line-height: 14px;
+        }
+        #playback-flash .pf-label:empty { display: none; }
+        #playback-flash .pf-hint { color: #c4c4c4; }
         :root.light #info {
             background-color: rgba(240, 240, 240, 0.85);
             border-color: rgba(0, 0, 0, 0.08);
@@ -24796,15 +24813,6 @@
                         let text = idxStr;
             const _info = document.getElementById('info');
             _info.innerHTML = text;
-            const playingLabel = playingVfieldT
-                ? _info.querySelector(`.vfield-t-dim[data-dim="${VFIELD_T_DIM}"]`)
-                : _info.querySelector('.playing-dim.dim-label');
-            if (playingLabel) playingLabel.insertAdjacentHTML('beforeend',
-                '<span class="playback-controls">'
-                + '<span class="playback-hint" data-step="down" aria-hidden="true">&lt;</span>'
-                + '<span class="playback-fps" aria-live="off"></span>'
-                + '<span class="playback-hint" data-step="up" aria-hidden="true">&gt;</span>'
-                + '</span>');
             _reconcilePlaybackHud();
             // A fresh render always starts from plain sizes — if a hover
             // position was showing, put it right back so scrolling another
@@ -27255,22 +27263,50 @@
         let playFps = 30; // playback speed; adjustable with < / > while playing
         let _userPlayFps = null; // speed picked with < / >; kept across stop/start
         let _playRafId = null;
-        let _playbackPressedStep = null;
-        let _playbackPressedTimer = null;
-        // Speed readout shows only briefly after < / >, not for the whole playback.
-        let _playbackSpeedShown = false;
-        let _playbackSpeedTimer = null;
-        const PLAYBACK_SPEED_SHOW_MS = 1200;
+        // Brief flash over the image on play / pause / speed change.
+        // kind: 'play' | 'pause' | 'faster' | 'slower'; null = hidden.
+        let _playbackFlash = null;
+        let _playbackFlashTimer = null;
+        const PLAYBACK_FLASH_MS = { play: 1600, pause: 600, faster: 900, slower: 900 };
+
+        function _flashPlayback(kind) {
+            _playbackFlash = kind;
+            clearTimeout(_playbackFlashTimer);
+            _playbackFlashTimer = setTimeout(() => {
+                _playbackFlash = null;
+                _reconcilePlaybackHud();
+            }, PLAYBACK_FLASH_MS[kind]);
+            _reconcilePlaybackHud();
+        }
 
         function _reconcilePlaybackHud() {
-            const info = document.getElementById('info');
-            if (!info) return;
-            info.classList.toggle('playback-hud-visible', isPlaying && _playbackSpeedShown);
-            const value = info.querySelector('.playback-fps');
-            if (value) value.textContent = `${playFps} fps`;
-            info.querySelectorAll('.playback-hint').forEach(hint => {
-                hint.classList.toggle('is-pressed', isPlaying && hint.dataset.step === _playbackPressedStep);
-            });
+            const row = document.getElementById('viewer-row');
+            if (!row) return;
+            let el = document.getElementById('playback-flash');
+            if (!el) {
+                el = document.createElement('div');
+                el.id = 'playback-flash';
+                el.setAttribute('aria-hidden', 'true');
+                el.innerHTML = '<div class="pf-disc"></div><div class="pf-label"></div>';
+                row.appendChild(el);
+            }
+            const kind = _playbackFlash;
+            if (!kind) { el.classList.remove('is-visible'); return; }
+            const glyph = {
+                play: '&#9654;&#xFE0E;',
+                pause: '&#10074;&#10074;',
+                faster: '<span class="pf-double">&#9654;&#xFE0E;&#9654;&#xFE0E;</span>',
+                slower: '&#9654;&#xFE0E;',
+            }[kind];
+            const label = kind === 'pause' ? ''
+                : kind === 'play'
+                    ? `${playFps} fps<span class="pf-hint"> · &lt; &gt; to change speed</span>`
+                    : `${playFps} fps`;
+            const disc = el.querySelector('.pf-disc');
+            const lab = el.querySelector('.pf-label');
+            if (disc.dataset.kind !== kind) { disc.innerHTML = glyph; disc.dataset.kind = kind; }
+            if (lab.innerHTML !== label) lab.innerHTML = label;
+            el.classList.add('is-visible');
         }
 
         function _initialPlaybackFps(size) {
@@ -27283,10 +27319,6 @@
             if (_playRafId) { cancelAnimationFrame(_playRafId); _playRafId = null; }
             if (playInterval) { clearTimeout(playInterval); playInterval = null; }
             isPlaying = false; playingVfieldT = false; playingDim = -1;
-            clearTimeout(_playbackPressedTimer);
-            _playbackPressedStep = null;
-            clearTimeout(_playbackSpeedTimer);
-            _playbackSpeedShown = false;
             setStatus('');
             renderInfo();
         }
@@ -27327,7 +27359,7 @@
         }
 
         function togglePlay() {
-            if (isPlaying) { stopPlay(); return; }
+            if (isPlaying) { stopPlay(); _flashPlayback('pause'); return; }
             isPlaying = true;
             if (activeDim === VFIELD_T_DIM) {
                 playingVfieldT = true;
@@ -27343,6 +27375,7 @@
                 playNext();
             }
             renderInfo();
+            _flashPlayback('play');
         }
 
         // Download helper: tries <a download> first, falls back to server POST (for PyWebView)
@@ -32067,19 +32100,7 @@
                     if (next === playFps) next = playFps + (up ? 1 : -1);
                     playFps = Math.max(1, Math.min(120, next));
                     _userPlayFps = playFps;
-                    _playbackPressedStep = up ? 'up' : 'down';
-                    clearTimeout(_playbackPressedTimer);
-                    _playbackPressedTimer = setTimeout(() => {
-                        _playbackPressedStep = null;
-                        _reconcilePlaybackHud();
-                    }, 350);
-                    _playbackSpeedShown = true;
-                    clearTimeout(_playbackSpeedTimer);
-                    _playbackSpeedTimer = setTimeout(() => {
-                        _playbackSpeedShown = false;
-                        _reconcilePlaybackHud();
-                    }, PLAYBACK_SPEED_SHOW_MS);
-                    _reconcilePlaybackHud();
+                    _flashPlayback(up ? 'faster' : 'slower');
                     return;
                 },
             },
