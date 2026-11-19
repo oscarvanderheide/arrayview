@@ -2916,7 +2916,7 @@ _TUTORIAL_EXTRAS: dict[str, str] = {}
 
 
 def _register_tutorial_extras(port: int, expected_server_id: str | None = None) -> None:
-    """Register the tutorial's vector-field and ragged-collection sessions.
+    """Register the tutorial's vector-field, MRI-head and ragged-collection sessions.
 
     Best effort: a failure here costs two sections, not the tour, so it is
     traced and swallowed rather than allowed to fail a launch that has already
@@ -2957,6 +2957,19 @@ def _register_tutorial_extras_impl(port, bundle, expected_server_id) -> None:
                 _TUTORIAL_EXTRAS["flow"] = str(flow_sid)
     except Exception as exc:  # pragma: no cover - best effort
         _trace_launch_event("tutorial.extra_failed", extra="flow", error=str(exc))
+
+    try:
+        head = _load_session_from_filepath(
+            port,
+            bundle.head_file,
+            "mri-head",
+            expected_server_id=expected_server_id,
+        )
+        head_sid = head.get("sid")
+        if head_sid and "error" not in head:
+            _TUTORIAL_EXTRAS["head"] = str(head_sid)
+    except Exception as exc:  # pragma: no cover - best effort
+        _trace_launch_event("tutorial.extra_failed", extra="head", error=str(exc))
 
     try:
         stack = _load_session_from_filepath(

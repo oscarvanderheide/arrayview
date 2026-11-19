@@ -32,6 +32,7 @@ class TutorialBundle:
     flow_file: str
     flow_field_file: str
     stack_pattern: str
+    head_file: str
 
 
 # The main tutorial array is a small pixel-art campsite. It is 4D so every
@@ -425,6 +426,113 @@ def make_tutorial_arrays():
     )
 
 
+# The volume chapter uses a made-up MRI head instead of the campsite:
+# swapping axes, rotating and stepping through anatomical views only make
+# sense on something with three real spatial axes. 2 mm voxels; y index 0
+# is the front, z index 0 the top.
+_HEAD_SHAPE = (96, 112, 80)          # x (right-left), y (front-back), z (top-bottom), 2 mm voxels
+_HEAD_TE = (10.0, 40.0, 80.0, 140.0)  # ms
+_HEAD_TR = (400.0, 1200.0, 4000.0)    # ms
+# tissue: (T1 ms, T2 ms, PD)
+_HEAD_TISSUE = {
+    "air": (1.0, 1.0, 0.0),
+    "fat": (350.0, 70.0, 0.95),
+    "bone": (500.0, 10.0, 0.05),
+    "csf": (4000.0, 1800.0, 1.0),
+    "gm": (1400.0, 100.0, 0.84),
+    "muscle": (900.0, 45.0, 0.7),
+    "wm": (700.0, 70.0, 0.66),
+}
+
+
+def make_head_arrays():
+    """Return a made-up MRI head as (x, y, z, echo time, repetition time).
+
+    Each tissue has a T1, T2 and proton density; the signal at each echo
+    and repetition time is the spin-echo formula, with a little noise. The
+    two small trailing dims are there to try Shift+arrow layouts on.
+    """
+    import numpy as np
+    from scipy import ndimage
+
+    nx, ny, nz = _HEAD_SHAPE
+    rng = np.random.default_rng(11)
+    x = (np.arange(nx) - (nx - 1) / 2) * 2.0
+    y = (np.arange(ny) - (ny - 1) / 2) * 2.0
+    z = (np.arange(nz) - (nz - 1) / 2) * 2.0
+    X, Y, Z = np.meshgrid(x, y, z, indexing="ij")
+    Zu = -Z  # z index 0 is the top of the head
+
+    def ell(cx, cy, cz, ax, ay, az):
+        return np.sqrt(((X - cx) / ax) ** 2 + ((Y - cy) / ay) ** 2 + ((Zu - cz) / az) ** 2)
+
+    def smooth_noise(sigma, amp):
+        n = ndimage.gaussian_filter(rng.standard_normal(_HEAD_SHAPE), sigma)
+        return amp * n / (n.std() + 1e-9)
+
+    label = np.zeros(_HEAD_SHAPE, dtype=np.uint8)  # 0 air 1 fat 2 bone 3 csf 4 gm 5 wm
+    head = ell(0, 6, -2, 76, 100, 84)
+    label[head < 1.0] = 1
+    label[head < 0.93] = 2
+    brain = ell(0, 2, 10, 64, 84, 60)
+    label[brain < 1.0] = 3
+    # Folded cortex: sulci are narrow valleys along the zero lines of a
+    # smooth random field, read on a shell so they run straight inwards.
+    field = smooth_noise(2.5, 1.0)
+    c = np.array([nx - 1, ny - 1, nz - 1], np.float32) / 2
+    rho = np.maximum(brain, 1e-3)
+    idx = np.stack([c[0] + (np.arange(nx)[:, None, None] - c[0]) * 0.85 / rho,
+                    c[1] + (np.arange(ny)[None, :, None] - c[1]) * 0.85 / rho,
+                    c[2] + (np.arange(nz)[None, None, :] - c[2]) * 0.85 / rho])
+    shell = ndimage.map_coordinates(field, idx.reshape(3, -1), order=1, mode="nearest").reshape(_HEAD_SHAPE)
+    valley = np.exp(-(shell / 0.35) ** 2)
+    surface = 0.97 - 0.30 * valley
+    inside = brain < 1.0
+    label[inside & (brain < surface)] = 4
+    label[inside & (brain < surface - 0.10)] = 5
+    # Each hemisphere has cortex on its inner face too, with the corpus
+    # callosum bridging them just above the ventricles.
+    label[(np.abs(X) < 7.0) & (label == 5)] = 4
+    callosum = ell(0, 2, 18, 9, 36, 5) < 1.0
+    label[callosum & (label >= 4)] = 5
+    # between the hemispheres, down to the callosum
+    label[(np.abs(X) < 2.2) & (brain < 1.0) & (Zu > 23 - 0.25 * np.abs(Y)) & ~callosum] = 3
+    # ventricles and deep grey matter
+    for s in (-1, 1):
+        label[ell(s * 9, 6, 10, 5.5, 26, 9) < 1.0] = 3
+        label[ell(s * 14, 10, 2, 5, 9, 11) < 1.0] = 3   # horns going back and down
+        label[(ell(s * 20, -2, 2, 8, 13, 9) < 1.0)] = 4  # basal ganglia
+    # cerebellum and brain stem, low at the back
+    cereb = ell(0, 52, -38, 46, 26, 20)
+    label[(cereb < 1.0) & (label <= 2)] = 3
+    label[cereb < 0.9] = 4
+    leaves = np.sin(Zu * 0.9 + np.abs(X) * 0.15) > 0.55
+    label[(cereb < 0.65) & leaves] = 5
+    stem = np.sqrt((X / 8) ** 2 + ((Y - 18) / 10) ** 2) < 1.0
+    label[stem & (Zu < -4) & (Zu > -70)] = 5
+
+    # skull base and neck under the brain
+    gap = (head < 0.88) & (label == 2)
+    label[gap] = 3
+    label[gap & (brain > 1.12) & (cereb > 1.12)] = 6
+    names = ["air", "fat", "bone", "csf", "gm", "wm", "muscle"]
+    t1 = np.array([_HEAD_TISSUE[n][0] for n in names], np.float32)[label]
+    t2 = np.array([_HEAD_TISSUE[n][1] for n in names], np.float32)[label]
+    pd = np.array([_HEAD_TISSUE[n][2] for n in names], np.float32)[label]
+    # soft edges, as a real scan blurs tissue boundaries
+    t1 = ndimage.gaussian_filter(t1, 0.6)
+    t2 = ndimage.gaussian_filter(t2, 0.6)
+    pd = ndimage.gaussian_filter(pd, 0.6)
+    bias = 1.0 + 0.15 * (Y / 112) - 0.1 * (Zu / 80)
+    out = np.empty(_HEAD_SHAPE + (len(_HEAD_TE), len(_HEAD_TR)), np.float32)
+    for j, tr in enumerate(_HEAD_TR):
+        for i, te in enumerate(_HEAD_TE):
+            s = pd * bias * (1 - np.exp(-tr / t1)) * np.exp(-te / t2)
+            noise = 0.012 * (rng.standard_normal(_HEAD_SHAPE) + 1j * rng.standard_normal(_HEAD_SHAPE))
+            out[..., i, j] = np.abs(s + noise)
+    return out
+
+
 def make_flow_arrays():
     """Return a volume and a matching displacement field.
 
@@ -497,6 +605,7 @@ def create_tutorial_bundle() -> TutorialBundle:
         flow_file=os.path.join(extras, "flow-volume.npy"),
         flow_field_file=os.path.join(extras, "flow-field.npy"),
         stack_pattern=os.path.join(cases_dir, "*", "scan.npy"),
+        head_file=os.path.join(extras, "mri-head.nii.gz"),
     )
     try:
         base, compare, overlay = make_tutorial_arrays()
@@ -507,6 +616,14 @@ def create_tutorial_bundle() -> TutorialBundle:
         flow, field = make_flow_arrays()
         np.save(bundle.flow_file, flow)
         np.save(bundle.flow_field_file, field)
+
+        # A NIfTI with a real orientation, so `o` names the views and shows
+        # each one upright. y index 0 is the front and z index 0 the top,
+        # hence the negative steps.
+        import nibabel as nib
+
+        affine = np.diag([2.0, -2.0, -2.0, 1.0])
+        nib.save(nib.Nifti1Image(make_head_arrays(), affine), bundle.head_file)
 
         for index, volume in enumerate(make_stack_arrays(), start=1):
             case_dir = os.path.join(cases_dir, f"case{index:02d}")

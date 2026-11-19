@@ -19721,7 +19721,7 @@
             // The tour spans several sessions, only one of which is called
             // "tutorial", so the URL is what says a tour is running.
             _isTutorialSession = data.name === 'tutorial'
-                || !!(_TUTORIAL_SIDS.flow || _TUTORIAL_SIDS.stack);
+                || !!(_TUTORIAL_SIDS.flow || _TUTORIAL_SIDS.stack || _TUTORIAL_SIDS.head);
             // Decided before the first frame lands, so a fresh tour never
             // flashes the array before its welcome.
             _tutorialIntroActive = _isTutorialSession
@@ -36221,6 +36221,7 @@
         const _TUTORIAL_SIDS = {
             flow: _tutorialUrlParams.get('tutorial_flow_sid') || '',
             stack: _tutorialUrlParams.get('tutorial_stack_sid') || '',
+            head: _tutorialUrlParams.get('tutorial_head_sid') || '',
         };
 
         /** Which of the tour's sessions this tab is currently showing. */
@@ -36228,6 +36229,7 @@
             const here = _tutorialUrlParams.get('sid') || '';
             if (here && here === _TUTORIAL_SIDS.flow) return 'flow';
             if (here && here === _TUTORIAL_SIDS.stack) return 'stack';
+            if (here && here === _TUTORIAL_SIDS.head) return 'head';
             return 'main';
         }
 
@@ -36243,6 +36245,7 @@
             params.set('sid', target);
             if (_TUTORIAL_SIDS.flow) params.set('tutorial_flow_sid', _TUTORIAL_SIDS.flow);
             if (_TUTORIAL_SIDS.stack) params.set('tutorial_stack_sid', _TUTORIAL_SIDS.stack);
+            if (_TUTORIAL_SIDS.head) params.set('tutorial_head_sid', _TUTORIAL_SIDS.head);
             if (_integratedBrowserDisplayHash) {
                 params.set('_av_integrated_browser', '1');
             }
@@ -36350,6 +36353,18 @@
             if (!_pixelInfoVisible) commands['hoverinfo.toggle'].run(makeContext(null), null);
         }
 
+        // The Shift+arrow steps name the dimension they mean; underline it
+        // for the reader rather than ask them to find it.
+        function _tutorialPickDimOfSize(n) {
+            for (let d = shape.length - 1; d >= 0; d--) {
+                if (Number(shape[d]) === n && d !== dim_x && d !== dim_y) {
+                    activeDim = d;
+                    renderInfo();
+                    return;
+                }
+            }
+        }
+
         const _TUTORIAL_SECTIONS = [
             {
                 id: 'moving', stage: 'single',
@@ -36371,13 +36386,6 @@
                         text: 'Press h and l to pick the dimension j and k move along.\nThe left and right arrows work too.\nOr click a number at the top.',
                         note: 'The underlined one is selected.\nScrolling over a number also moves through that dimension.\nTry the last one: it changes the time of day.',
                         expect: ['dim.next', 'dim.prev'], spotlight: '#info',
-                    },
-                    {
-                        key: 'x  y',
-                        text: 'Choose a dimension with h or l.\nPress x to draw it across the image, or y to draw it down.',
-                        note: 'This pixel art scene looks best in its starting view, so other views may look odd.',
-                        expect: ['axis.assignX', 'axis.assignY'],
-                        spotlight: '#info',
                     },
                     {
                         key: 'c',
@@ -36438,21 +36446,6 @@
                 ],
             },
             {
-                id: 'shaping', stage: 'single',
-                steps: [
-                    {
-                        key: 'r',
-                        text: 'Press r to rotate the image a quarter turn.\nOnly the view turns.\nThe data stays the same.',
-                        expect: ['view.rotateOrFlip'],
-                    },
-                    {
-                        key: 't',
-                        text: 'Press t to swap the horizontal and vertical axes.\nPress t again to swap them back.',
-                        expect: ['view.transpose'],
-                    },
-                ],
-            },
-            {
                 id: 'closer', stage: 'single',
                 steps: [
                     {
@@ -36484,6 +36477,52 @@
                                 renderInfo();
                             }
                         },
+                    },
+                ],
+            },
+            {
+                id: 'volume', stage: 'single', session: 'head',
+                steps: [
+                    {
+                        text: 'This is a made-up MRI scan of a head.\nThe first three dimensions are space.\nThe last two are 4 echo times and 3 repetition times.',
+                        note: 'j and k step through the slices, as before.',
+                    },
+                    {
+                        key: 'x  y',
+                        text: 'Choose a dimension with h or l.\nPress x to draw it across the image, or y to draw it down.\nThat way you can look at the head from any side.',
+                        expect: ['axis.assignX', 'axis.assignY'],
+                        spotlight: '#info',
+                    },
+                    {
+                        key: 'o',
+                        text: 'Press o to step through the axial, coronal and sagittal views.',
+                        expect: ['view.nextPlaneOrOrigin'],
+                    },
+                    {
+                        key: 'r',
+                        text: 'Press r to rotate the image a quarter turn.\nOnly the view turns.\nThe data stays the same.',
+                        note: 'Each view keeps its own rotation.',
+                        expect: ['view.rotateOrFlip'],
+                    },
+                    {
+                        key: 't',
+                        text: 'Press t to swap the horizontal and vertical axes.\nPress t again to swap them back.',
+                        expect: ['view.transpose'],
+                    },
+                    {
+                        key: 'Shift+→',
+                        text: 'The echo time dimension is now underlined.\nPress Shift+→ to lay its 4 images out next to each other.\nThe signal fades as the echo time gets longer.',
+                        expect: ['mosaic.across'],
+                        spotlight: '#info',
+                        onEnter: () => _tutorialPickDimOfSize(4),
+                    },
+                    {
+                        key: 'Shift+↓',
+                        text: 'Now the repetition time is underlined.\nPress Shift+↓ to lay its 3 images out in rows.\nTogether they make a grid of every combination.',
+                        note: 'Shift+← and Shift+↑ take them out again.',
+                        expect: ['mosaic.down', 'mosaic.unacross', 'mosaic.undown'],
+                        spotlight: '#info',
+                        onEnter: () => _tutorialPickDimOfSize(3),
                     },
                 ],
             },
