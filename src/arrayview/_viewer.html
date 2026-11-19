@@ -948,6 +948,20 @@
                   pointer-events: none; z-index: 6; max-width: calc(100vw - 116px); overflow: hidden;
                   text-overflow: ellipsis; opacity: 0; transition: opacity 0.3s ease; }
         #toast.visible { opacity: 1; }
+        /* Magic wand: both drag readings beside the cursor while the seed is held. */
+        #roi-fill-hud {
+            position: fixed; z-index: 100; display: none; pointer-events: none;
+            padding: 6px 9px; border-radius: var(--radius); background: var(--surface);
+            border: 1px solid var(--border); color: var(--text);
+            font: 11px ui-monospace, monospace; line-height: 1.6; white-space: nowrap;
+        }
+        #roi-fill-hud.visible { display: block; }
+        #roi-fill-hud .ax { color: var(--muted); display: inline-block; width: 1.4em; }
+        #roi-fill-hud .lbl { color: var(--muted); display: inline-block; width: 7.5em; }
+        #roi-fill-hud .val { color: var(--active-dim); font-weight: bold; }
+        #roi-fill-hud .dot { display: inline-block; width: 6px; height: 6px; margin-right: 3px; border-radius: 50%;
+            border: 1px solid var(--muted); vertical-align: middle; }
+        #roi-fill-hud .dot.on { background: var(--active-dim); border-color: var(--active-dim); }
         body.zen-mode #toast { display: none; }
         #pixel-info { display: none; } /* replaced by .cv-pixel-info per-canvas overlays */
         .cv-pixel-info {
@@ -28905,39 +28919,36 @@
         }
 
         let _roiFillGaugeActive = false;
-        let _roiFillBandOn = false;
-        let _roiFillOpenedHist = false;
-        // While the seed is held, the colorbar shows which values join: a
-        // bright band around the clicked value, the rest dimmed.
+        let _roiFillHudWasOn = false;
+        // While the seed is held, a small card beside the cursor shows both
+        // drag readings: sensitivity (up/down) and edge smoothing (left/right).
         function _reconcileFloodfillSensitivityHud() {
             const drag = _roiFloodFillDrag;
-            const active = _roiFillGaugeActive && rectRoiMode && _roiShape === 'floodfill' && drag && !drag.released;
-            const wasActive = !!_roiFillBandOn;
-            _roiFillBandOn = !!active;
-            if (!active) {
-                if (wasActive) {
-                    primaryCb.setFillBand(null);
-                    if (_roiFillOpenedHist) {
-                        _roiFillOpenedHist = false;
-                        if (!primaryCb._manualExpand) primaryCb.collapse();
-                    }
-                }
-                return;
+            const active = !!(_roiFillGaugeActive && rectRoiMode && _roiShape === 'floodfill' && drag && !drag.released);
+            const wasActive = _roiFillHudWasOn;
+            _roiFillHudWasOn = active;
+            let hud = document.getElementById('roi-fill-hud');
+            if (!hud && !active) return;
+            if (!hud) {
+                hud = document.createElement('div');
+                hud.id = 'roi-fill-hud';
+                hud.innerHTML = '<div><span class="ax">↕</span><span class="lbl">sensitivity</span><span class="val fill-tol"></span></div>'
+                    + '<div><span class="ax">↔</span><span class="lbl">smoothing</span><span class="fill-dots">'
+                    + '<span class="dot"></span>'.repeat(5) + '</span></div>';
+                document.body.appendChild(hud);
             }
-            // Show the whole value range (the histogram) while holding, so a
-            // seed outside the colour window still has its band on screen.
-            if (!wasActive && !rgbMode && !primaryCb.expanded) {
-                _roiFillOpenedHist = true;
-                primaryCb.expand();
-            }
-            const raw = _roiFillRaw && _roiFillRaw.key === _roiFillRawKey(drag.view) ? _roiFillRaw : null;
-            const absRange = Number.isFinite(drag.absRange) ? drag.absRange : raw && raw.data ? raw.absRange : NaN;
-            const seed = drag.seedValue;
-            const is3d = Number.isInteger(drag.scopeDim) && drag.scopeDim >= 0;
-            if (!wasActive && is3d) _pulseFloodfillScopeDims(drag);
-            primaryCb.setFillBand(Number.isFinite(seed) && Number.isFinite(absRange)
-                ? { lo: seed - drag.tolerance * absRange, hi: seed + drag.tolerance * absRange }
-                : null);
+            hud.classList.toggle('visible', active);
+            if (!active) return;
+            if (!wasActive && Number.isInteger(drag.scopeDim) && drag.scopeDim >= 0) _pulseFloodfillScopeDims(drag);
+            const pct = drag.tolerance * 100;
+            hud.querySelector('.fill-tol').textContent = `${pct < 10 ? pct.toFixed(1) : Math.round(pct)}%`;
+            const sm = drag.smooth || 0;
+            hud.querySelectorAll('.dot').forEach((d, i) => d.classList.toggle('on', i < sm));
+            const w = hud.offsetWidth, h = hud.offsetHeight;
+            const cx = drag.clientX, cy = drag.clientY;
+            const x = cx + 22 + w <= window.innerWidth - 8 ? cx + 22 : cx - w - 22;
+            hud.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, x))}px`;
+            hud.style.top = `${Math.max(8, Math.min(window.innerHeight - h - 8, cy + 18))}px`;
         }
         function _pulseFloodfillScopeDims(drag) {
             const info = document.getElementById('info');
@@ -29131,9 +29142,9 @@
             return Number.isInteger(drag.scopeDim) && drag.scopeDim >= 0;
         }
         function _roiFloodFillLocalPreview(drag) {
-            // A 3D grow reaches round through neighbouring slices; filling
-            // the shown plane alone would show too small a region.
-            if (_roiFloodFillIs3d(drag)) return false;
+            // A 3D grow can reach round through neighbouring slices, so the
+            // shown plane alone may be a little small; the server's 3D answer
+            // replaces it moments later. Instant beats exact while dragging.
             const raw = _roiFillRawFor(drag.view);
             if (!raw) return false;
             const data = _roiLocalFloodFill(raw, drag);
@@ -29320,17 +29331,18 @@
             _requestFloodFillPreview(drag);
             const onMove = me => {
                 if (_roiFloodFillDrag !== drag) return;
+                drag.clientX = me.clientX;
+                drag.clientY = me.clientY;
                 const next = _floodFillToleranceFromDrag(drag.baseTolerance, me.clientY - drag.startY);
                 // Sideways: edge smoothing, one step per 40 px.
                 const nextSmooth = Math.max(0, Math.min(5, drag.baseSmooth + Math.round((me.clientX - drag.startX) / 40)));
                 // Relative step: at a few percent an absolute 0.5 % step was
                 // a large jump in what joins.
                 const tolChanged = Math.abs(Math.log(next / drag.tolerance)) >= 0.01;
-                if (!tolChanged && nextSmooth === drag.smooth) return;
+                if (!tolChanged && nextSmooth === drag.smooth) { _reconcileFloodfillSensitivityHud(); return; }
                 if (nextSmooth !== drag.smooth) {
                     drag.smooth = nextSmooth;
                     _floodFillSmooth = nextSmooth;
-                    showToast(nextSmooth ? `edge smoothing ${nextSmooth} of 5` : 'edge smoothing off');
                 }
                 if (tolChanged) {
                     drag.tolerance = next;
