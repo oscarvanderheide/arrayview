@@ -1038,6 +1038,12 @@ def _server_alive(port: int, timeout: float = 0.5) -> bool:
 
 def _server_pid(port: int) -> int | None:
     """Return the pid of the responding ArrayView server, or None if unreachable."""
+    pids = _server_pids(port)
+    return None if pids is None else pids[0]
+
+
+def _server_pids(port: int) -> tuple[int | None, int | None] | None:
+    """Return (pid, parent pid) of the responding ArrayView server, or None."""
     url = f"http://{_LOOPBACK_HOST}:{port}/ping"
     try:
         with urllib.request.urlopen(url, timeout=0.5) as resp:
@@ -1045,7 +1051,7 @@ def _server_pid(port: int) -> int | None:
                 return None
             payload = json.loads(resp.read().decode("utf-8"))
             if payload.get("ok") is True and payload.get("service") == "arrayview":
-                return payload.get("pid")
+                return payload.get("pid"), payload.get("ppid")
     except Exception:
         pass
     return None
@@ -2644,7 +2650,10 @@ def _wait_for_spawned_server(
                 return False
         except Exception:
             return False
-        if _server_pid(port) == expected_pid:
+        # On Windows a venv's python.exe is a launcher that runs the real
+        # interpreter as its child: the listener then reports *proc* as parent.
+        pids = _server_pids(port)
+        if pids is not None and expected_pid in pids:
             return True
         time.sleep(0.02)
     return False

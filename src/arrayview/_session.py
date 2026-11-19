@@ -157,6 +157,9 @@ def ping_payload(*, active_sessions: int) -> dict:
         "ok": True,
         "service": "arrayview",
         "pid": os.getpid(),
+        # Windows venv python.exe is a launcher that runs the real
+        # interpreter as its child, so the spawner only knows the parent pid.
+        "ppid": os.getppid(),
         "uid": os.geteuid() if hasattr(os, "geteuid") else None,
         "hostname": _socket.gethostname(),
         "protocol_version": runtime.protocol_version,

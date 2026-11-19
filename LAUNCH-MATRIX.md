@@ -52,6 +52,19 @@ that actually occur, not the cross-product.
 
 ## The table
 
+### 2026-11-19 Windows: spawned server always "did not claim port"
+
+Rows changed: every Windows launch that spawns a background server (CLI
+`arrayview <file>`, `--serve`, Python `view()`). The launcher waited for the
+listener's pid to equal the child it started. On Windows a venv's `python.exe`
+(uvx, uv, `python -m venv`) is a launcher that runs the real interpreter as its
+child, so the pids never matched and every launch failed on any port. `/ping`
+now also reports `ppid`; the wait accepts either. Reported from a local VS Code
+terminal on Windows with `uvx arrayview`. Evidence: `component` (Linux, a
+middle process spawning the server as its child, as the Windows launcher
+does); `real process` for the unchanged Linux CLI `--window none` path.
+Windows host: `unavailable` — needs a re-run on the colleague's machine.
+
 ### 2026-11-18 shared machines and network homes (opener 0.15.78–0.15.80)
 
 Trigger: a colleague (Linux PC, NFS home also mounted on roodnoot) used Remote
