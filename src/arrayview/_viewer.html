@@ -28929,14 +28929,17 @@
         let _roiFillHudWasOn = false;
         // Nothing is drawn while the seed is held: eyes are on the region.
         // A 3D grow flashes its axes in the info bar when the hold starts, and
-        // after release shows a spinner by the cursor until the region lands.
+        // shows a spinner by the cursor whenever the 3D answer trails what is
+        // on screen: from the press, after each drag step, and after release.
         function _reconcileFloodfillSensitivityHud() {
             const drag = _roiFloodFillDrag;
             const is3d = !!drag && Number.isInteger(drag.scopeDim) && drag.scopeDim >= 0;
             const holding = !!(rectRoiMode && _roiShape === 'floodfill' && drag && !drag.released && _roiFillGaugeActive);
             if (holding && !_roiFillHudWasOn && is3d) _pulseFloodfillScopeDims(drag);
             _roiFillHudWasOn = holding;
-            const waiting = !!(rectRoiMode && _roiShape === 'floodfill' && drag && drag.released && is3d);
+            const caughtUp = !!drag && !!drag.data && _roiFloodFillDataCurrent(drag);
+            const waiting = !!(rectRoiMode && _roiShape === 'floodfill' && drag && is3d
+                && (drag.released || (_roiFillGaugeActive && !caughtUp)));
             let hud = document.getElementById('roi-fill-hud');
             if (!hud && !waiting) return;
             if (!hud) {
@@ -28946,7 +28949,7 @@
             }
             hud.classList.toggle('visible', waiting);
             if (!waiting) return;
-            const cx = drag.clientX, cy = drag.clientY; // where the seed was let go
+            const cx = drag.clientX, cy = drag.clientY; // cursor while held; where it was let go
             hud.style.left = `${Math.max(4, Math.min(window.innerWidth - 18, cx + 14))}px`;
             hud.style.top = `${Math.max(4, Math.min(window.innerHeight - 18, cy + 14))}px`;
         }
