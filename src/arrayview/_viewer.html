@@ -959,9 +959,14 @@
         #roi-fill-hud .ax { color: var(--muted); display: inline-block; width: 1.4em; }
         #roi-fill-hud .lbl { color: var(--muted); display: inline-block; width: 7.5em; }
         #roi-fill-hud .val { color: var(--active-dim); font-weight: bold; }
-        #roi-fill-hud .dot { display: inline-block; width: 6px; height: 6px; margin-right: 3px; border-radius: 50%;
-            border: 1px solid var(--muted); vertical-align: middle; }
-        #roi-fill-hud .dot.on { background: var(--active-dim); border-color: var(--active-dim); }
+        #roi-fill-hud .track { display: inline-block; width: 46px; height: 4px; margin-right: 6px; border-radius: 2px;
+            background: var(--border); vertical-align: middle; overflow: hidden; }
+        #roi-fill-hud .track > span { display: block; height: 100%; background: var(--active-dim); }
+        #roi-fill-hud .fill-3d { display: none; }
+        #roi-fill-hud.is-3d .fill-3d { display: block; }
+        #roi-fill-hud .fill-3d .val { font-weight: normal; }
+        #roi-fill-hud.busy-3d .fill-3d .val { color: var(--muted); animation: roi-fill-busy 1s ease-in-out infinite alternate; }
+        @keyframes roi-fill-busy { from { opacity: 1; } to { opacity: .35; } }
         body.zen-mode #toast { display: none; }
         #pixel-info { display: none; } /* replaced by .cv-pixel-info per-canvas overlays */
         .cv-pixel-info {
@@ -7068,7 +7073,7 @@
         let _roiVisible = true;
         let _roiNextId = 1;
         let _floodFillTolerance = 0.1;
-        let _floodFillSmooth = 0; // magic-wand edge smoothing, 0 (off) .. 5; drag sideways while holding
+        let _floodFillSmooth = 2.5; // magic-wand edge smoothing, 0 (off) .. 5, continuous; drag sideways while holding
         let _selectedRoiIdx = -1;
         let _roiEditDrag = null; // {idx, mode, startX, startY, snapshot}
         let _roiTooltipEdit = null; // {idx, original}
@@ -28924,7 +28929,9 @@
         // drag readings: sensitivity (up/down) and edge smoothing (left/right).
         function _reconcileFloodfillSensitivityHud() {
             const drag = _roiFloodFillDrag;
-            const active = !!(_roiFillGaugeActive && rectRoiMode && _roiShape === 'floodfill' && drag && !drag.released);
+            const is3d = !!drag && Number.isInteger(drag.scopeDim) && drag.scopeDim >= 0;
+            // A 3D grow keeps the card up after release until its region lands.
+            const active = !!(rectRoiMode && _roiShape === 'floodfill' && drag && (drag.released ? is3d : _roiFillGaugeActive));
             const wasActive = _roiFillHudWasOn;
             _roiFillHudWasOn = active;
             let hud = document.getElementById('roi-fill-hud');
@@ -28933,17 +28940,23 @@
                 hud = document.createElement('div');
                 hud.id = 'roi-fill-hud';
                 hud.innerHTML = '<div><span class="ax">↕</span><span class="lbl">sensitivity</span><span class="val fill-tol"></span></div>'
-                    + '<div><span class="ax">↔</span><span class="lbl">smoothing</span><span class="fill-dots">'
-                    + '<span class="dot"></span>'.repeat(5) + '</span></div>';
+                    + '<div><span class="ax">↔</span><span class="lbl">smoothing</span><span class="track"><span></span></span><span class="val fill-sm"></span></div>'
+                    + '<div class="fill-3d"><span class="ax">⧉</span><span class="lbl">3D region</span><span class="val fill-3d-state"></span></div>';
                 document.body.appendChild(hud);
             }
             hud.classList.toggle('visible', active);
             if (!active) return;
-            if (!wasActive && Number.isInteger(drag.scopeDim) && drag.scopeDim >= 0) _pulseFloodfillScopeDims(drag);
+            if (!wasActive && is3d) _pulseFloodfillScopeDims(drag);
             const pct = drag.tolerance * 100;
             hud.querySelector('.fill-tol').textContent = `${pct < 10 ? pct.toFixed(1) : Math.round(pct)}%`;
             const sm = drag.smooth || 0;
-            hud.querySelectorAll('.dot').forEach((d, i) => d.classList.toggle('on', i < sm));
+            hud.querySelector('.track > span').style.width = `${sm / 5 * 100}%`;
+            hud.querySelector('.fill-sm').textContent = sm ? sm.toFixed(1) : 'off';
+            // The plane on screen is drawn at once; the 3D region trails it.
+            const ready = !!drag.data && _roiFloodFillDataCurrent(drag) && !(drag.released && drag.dataLite);
+            hud.classList.toggle('is-3d', is3d);
+            hud.classList.toggle('busy-3d', is3d && !ready);
+            hud.querySelector('.fill-3d-state').textContent = !is3d ? '' : ready ? 'up to date' : drag.released ? 'finishing…' : 'catching up…';
             const w = hud.offsetWidth, h = hud.offsetHeight;
             const cx = drag.clientX, cy = drag.clientY;
             const x = cx + 22 + w <= window.innerWidth - 8 ? cx + 22 : cx - w - 22;
@@ -29078,8 +29091,8 @@
             const smooth = drag.smooth || 0;
             let cmp = data;
             if (smooth > 0) {
-                raw.blurred = raw.blurred || {};
-                cmp = raw.blurred[smooth] || (raw.blurred[smooth] = _roiBlurPlane(data, w, h, smooth / 2));
+                if (!raw.blurred || raw.blurred.smooth !== smooth) raw.blurred = { smooth, data: _roiBlurPlane(data, w, h, smooth / 2) };
+                cmp = raw.blurred.data;
             }
             const seedIdx = sy * w + sx;
             const seed = cmp[seedIdx];
@@ -29194,11 +29207,17 @@
                     if (drag.released && !drag.dataLite && _roiFloodFillDataCurrent(drag)) {
                         _roiFloodFillDrag = null;
                         _commitFloodFillData(data, { editIdx: drag.editIdx, px: drag.px, py: drag.py, tolerance, smooth, view: drag.view });
+                        _reconcileFloodfillSensitivityHud();
                     }
                 })
                 .catch(err => {
                     if (!_roiFloodFillDrag || _roiFloodFillDrag !== drag || token !== drag.token) return;
-                    showStatus(`flood fill: ${err.message}`);
+                    showToast(`flood fill: ${err.message}`);
+                    if (drag.released) {
+                        _roiFloodFillDrag = null;
+                        _redrawRoiOverlays();
+                        _reconcileFloodfillSensitivityHud();
+                    }
                 })
                 .finally(() => {
                     if (!drag) return;
@@ -29334,8 +29353,8 @@
                 drag.clientX = me.clientX;
                 drag.clientY = me.clientY;
                 const next = _floodFillToleranceFromDrag(drag.baseTolerance, me.clientY - drag.startY);
-                // Sideways: edge smoothing, one step per 40 px.
-                const nextSmooth = Math.max(0, Math.min(5, drag.baseSmooth + Math.round((me.clientX - drag.startX) / 40)));
+                // Sideways: edge smoothing, 0..5 over 200 px, in steps of 0.05.
+                const nextSmooth = Math.round(Math.max(0, Math.min(5, drag.baseSmooth + (me.clientX - drag.startX) / 40)) * 20) / 20;
                 // Relative step: at a few percent an absolute 0.5 % step was
                 // a large jump in what joins.
                 const tolChanged = Math.abs(Math.log(next / drag.tolerance)) >= 0.01;
@@ -29360,6 +29379,7 @@
                 if (drag.data && !drag.dataLite && _roiFloodFillDataCurrent(drag)) {
                     _roiFloodFillDrag = null;
                     _commitFloodFillData(drag.data, { editIdx: drag.editIdx, px: drag.px, py: drag.py, tolerance: drag.tolerance, smooth: drag.smooth, view: drag.view });
+                    _reconcileFloodfillSensitivityHud();
                 } else {
                     if (!drag.pending) _requestFloodFillPreview(drag);
                     showStatus('flood fill: finishing preview...');

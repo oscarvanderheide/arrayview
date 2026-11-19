@@ -255,10 +255,10 @@ def register_analysis_routes(app, get_session_or_404) -> None:
         complex_mode: int = 0,
         scope_dim: int | None = None,
         preview: bool = False,
-        smooth: int = 0,
+        smooth: float = 0.0,
         session=Depends(get_session_or_404),
     ):
-        smooth = max(0, min(_FLOODFILL_SMOOTH_MAX, int(smooth)))
+        smooth = round(max(0.0, min(_FLOODFILL_SMOOTH_MAX, float(smooth))), 2)
         if session.rgb_axis is not None:
             return {"error": "not supported for RGB sessions"}
         idx_tuple = tuple(int(v) for v in indices.split(","))
@@ -284,7 +284,7 @@ def register_analysis_routes(app, get_session_or_404) -> None:
         abs_tol = tolerance * (
             np.nanmax(np.abs(data)) - np.nanmin(np.abs(data)) + 1e-10
         )
-        component, seed_val = _grow_floodfill(data[None], (0, py, px), abs_tol, smooth)
+        component, seed_val, _box, _crop = _grow_floodfill(data[None], (0, py, px), abs_tol, smooth)
         component = component[0]
         if not component.any():
             return {"error": "seed outside tolerance region"}
@@ -638,12 +638,12 @@ _FLOODFILL_VOLUME_CACHE: dict = {}
 _FLOODFILL_VOLUME_LOCK = threading.Lock()
 
 
-# Edge smoothing for the magic wand, level 0 (off) .. _FLOODFILL_SMOOTH_MAX.
-# Level s: compare a copy of the image blurred in-plane with sigma s/2, then
-# blur the grown mask in-plane with sigma s, keep > 0.5, keep the seed's piece
-# and fill in-plane holes. The viewer repeats this exactly for its instant
-# single-slice preview (_roiLocalFloodFill) — keep the two in step.
-_FLOODFILL_SMOOTH_MAX = 5
+# Edge smoothing for the magic wand, a continuous level s in 0 (off) ..
+# _FLOODFILL_SMOOTH_MAX. Compare a copy of the image blurred in-plane with
+# sigma s/2, then blur the grown mask in-plane with sigma s, keep > 0.5, keep
+# the seed's piece and fill in-plane holes. The viewer repeats this exactly for
+# its instant single-slice preview (_roiLocalFloodFill) — keep the two in step.
+_FLOODFILL_SMOOTH_MAX = 5.0
 
 
 def _blur_planes(values: np.ndarray, sigma: float) -> np.ndarray:
@@ -662,38 +662,105 @@ def _blur_planes(values: np.ndarray, sigma: float) -> np.ndarray:
     return out
 
 
-def _grow_floodfill(volume, seed, abs_tol, smooth=0, blur_cache=None):
-    """Region of [z, y, x] *volume* joined to *seed*; returns (mask, seed value)."""
+def _grow_in_box(volume, seed, abs_tol, smooth, lo, hi):
+    """Grow inside box [lo, hi). Returns (crop mask, seed value, axes hit).
+
+    *axes hit* lists the axes where the region could reach past an inner box
+    face (one that is not the volume edge): then the box result may differ
+    from the whole-volume one and the caller must retry with a bigger box.
+    """
+    shape = volume.shape
     if smooth > 0:
-        try:
-            from scipy.ndimage import binary_fill_holes
-        except ImportError:
-            smooth = 0
-    if smooth <= 0:
-        seed_val = float(volume[seed])
-        mask = np.abs(volume - seed_val) <= abs_tol
-        return _connected_component(mask, seed), seed_val
-    img = blur_cache.get(smooth) if blur_cache is not None else None
-    if img is None:
-        img = _blur_planes(volume, smooth / 2.0)
-        if blur_cache is not None:
-            blur_cache[smooth] = img
-    seed_val = float(img[seed])
-    grown = _connected_component(np.abs(img - seed_val) <= abs_tol, seed)
-    rounded = _blur_planes(grown.astype(np.float32), float(smooth)) > 0.5
-    rounded = _connected_component(rounded, seed)
+        r_img = int(4.0 * (smooth / 2.0) + 0.5)
+        r_mask = int(4.0 * smooth + 0.5)
+    else:
+        r_img = r_mask = 0
+    # The image blur needs r_img of real neighbours in-plane around the box.
+    elo = [lo[0]] + [max(0, lo[i] - r_img) for i in (1, 2)]
+    ehi = [hi[0]] + [min(shape[i], hi[i] + r_img) for i in (1, 2)]
+    sub = volume[elo[0]:ehi[0], elo[1]:ehi[1], elo[2]:ehi[2]]
+    img = _blur_planes(sub, smooth / 2.0) if smooth > 0 else sub
+    img = img[
+        :,
+        lo[1] - elo[1]: lo[1] - elo[1] + (hi[1] - lo[1]),
+        lo[2] - elo[2]: lo[2] - elo[2] + (hi[2] - lo[2]),
+    ]
+    local = tuple(seed[i] - lo[i] for i in range(3))
+    seed_val = float(img[local])
+    grown = _connected_component(np.abs(img - seed_val) <= abs_tol, local)
+    # Clearance from inner faces: one voxel along the stack (the grow could
+    # step through), r_mask + 1 in-plane (the mask blur must see only zeros).
+    hit = []
+    for axis, margin in ((0, 1), (1, r_mask + 1), (2, r_mask + 1)):
+        n = grown.shape[axis]
+        if (lo[axis] > 0 and np.take(grown, range(min(margin, n)), axis=axis).any()) or (
+            hi[axis] < shape[axis] and np.take(grown, range(max(0, n - margin), n), axis=axis).any()
+        ):
+            hit.append(axis)
+    if hit or smooth <= 0 or not grown.any():
+        return grown, seed_val, hit
+    from scipy.ndimage import binary_fill_holes
+
+    # Round the edge only around the region: its bounding box plus the mask
+    # blur reach (outside it the blurred mask is exactly zero).
+    zz, yy, xx = (np.flatnonzero(grown.any(axis=a)) for a in ((1, 2), (0, 2), (0, 1)))
+    sub = (
+        slice(zz[0], zz[-1] + 1),
+        slice(max(0, yy[0] - r_mask - 1), min(grown.shape[1], yy[-1] + r_mask + 2)),
+        slice(max(0, xx[0] - r_mask - 1), min(grown.shape[2], xx[-1] + r_mask + 2)),
+    )
+    sub_seed = tuple(local[i] - sub[i].start for i in range(3))
+    rounded = _blur_planes(grown[sub].astype(np.float32), float(smooth)) > 0.5
+    rounded = _connected_component(rounded, sub_seed)
     if not rounded.any():
-        return grown, seed_val
+        return grown, seed_val, hit
     for z in np.flatnonzero(rounded.any(axis=(1, 2))):
         rounded[z] = binary_fill_holes(rounded[z])
-    return rounded, seed_val
+    out = np.zeros_like(grown)
+    out[sub] = rounded
+    return out, seed_val, hit
+
+
+def _grow_floodfill(volume, seed, abs_tol, smooth=0.0):
+    """Region of [z, y, x] *volume* joined to *seed*.
+
+    Returns (full mask, seed value, box slices, mask inside the box). Works in
+    a box around the seed and doubles it until the region fits, so a compact
+    region in a big volume costs only its own neighbourhood.
+    """
+    if smooth > 0:
+        try:
+            import scipy.ndimage  # noqa: F401
+        except ImportError:
+            smooth = 0.0
+    shape = volume.shape
+    half = [24, 32, 32]
+    if shape[0] > 1:
+        # Size the first box from the region on the seed's own plane, so a
+        # big region does not walk up through several small boxes.
+        plo = [seed[0], 0, 0]
+        phi = [seed[0] + 1, shape[1], shape[2]]
+        plane, _v, _h = _grow_in_box(volume, seed, abs_tol, smooth, plo, phi)
+        ys, xs = np.flatnonzero(plane[0].any(axis=1)), np.flatnonzero(plane[0].any(axis=0))
+        if ys.size:
+            reach = max(seed[1] - ys[0], ys[-1] - seed[1], seed[2] - xs[0], xs[-1] - seed[2]) + 8
+            half = [max(24, reach), max(32, reach), max(32, reach)]
+    while True:
+        lo = [max(0, seed[i] - half[i]) for i in range(3)]
+        hi = [min(shape[i], seed[i] + half[i] + 1) for i in range(3)]
+        crop, seed_val, hit = _grow_in_box(volume, seed, abs_tol, smooth, lo, hi)
+        if not hit:
+            break
+        for axis in hit:
+            half[axis] *= 2
+    box = tuple(slice(lo[i], hi[i]) for i in range(3))
+    full = np.zeros(shape, dtype=bool)
+    full[box] = crop
+    return full, seed_val, box, crop
 
 
 def _scoped_floodfill_volume(session, dim_x, dim_y, indices, complex_mode, scope_dim):
-    """Return ``(volume, abs_range, blur_cache)`` for a scoped grow.
-
-    volume is [scope, y, x]; blur_cache holds smoothed copies by level.
-    """
+    """Return ``(volume, abs_range)`` for a scoped grow; volume is [scope, y, x]."""
     other = tuple(v for i, v in enumerate(indices) if i not in (dim_x, dim_y, scope_dim))
     key = (
         session.sid,
@@ -708,7 +775,7 @@ def _scoped_floodfill_volume(session, dim_x, dim_y, indices, complex_mode, scope
     with _FLOODFILL_VOLUME_LOCK:
         hit = _FLOODFILL_VOLUME_CACHE.get("entry")
         if hit is not None and hit[0] == key:
-            return hit[1], hit[2], hit[3]
+            return hit[1], hit[2]
     planes = []
     for value in range(session.shape[scope_dim]):
         idx = list(indices)
@@ -720,9 +787,8 @@ def _scoped_floodfill_volume(session, dim_x, dim_y, indices, complex_mode, scope
     mag = np.abs(volume)
     abs_range = float(np.nanmax(mag) - np.nanmin(mag) + 1e-10)
     with _FLOODFILL_VOLUME_LOCK:
-        blur_cache: dict = {}
-        _FLOODFILL_VOLUME_CACHE["entry"] = (key, volume, abs_range, blur_cache)
-    return volume, abs_range, blur_cache
+        _FLOODFILL_VOLUME_CACHE["entry"] = (key, volume, abs_range)
+    return volume, abs_range
 
 
 def _scoped_floodfill_response(
@@ -736,7 +802,7 @@ def _scoped_floodfill_response(
     complex_mode: int,
     scope_dim: int,
     preview: bool = False,
-    smooth: int = 0,
+    smooth: float = 0.0,
 ) -> dict:
     shape = session.shape
     if len(indices) < len(shape):
@@ -750,7 +816,7 @@ def _scoped_floodfill_response(
         return {"error": "scope_dim must be exactly one non-display dimension"}
 
     values = list(range(shape[scope_dim]))
-    volume, abs_range, blur_cache = _scoped_floodfill_volume(
+    volume, abs_range = _scoped_floodfill_volume(
         session, dim_x, dim_y, indices, complex_mode, scope_dim
     )
     depth, h, w = volume.shape
@@ -759,10 +825,10 @@ def _scoped_floodfill_response(
 
     seed_z = values.index(indices[scope_dim])
     abs_tol = tolerance * abs_range
-    component, seed_val = _grow_floodfill(
-        volume, (seed_z, py, px), abs_tol, smooth, blur_cache
+    component, seed_val, box, crop = _grow_floodfill(
+        volume, (seed_z, py, px), abs_tol, smooth
     )
-    roi_values = volume[component]
+    roi_values = volume[box][crop]
     finite = roi_values[np.isfinite(roi_values)]
 
     if preview:

@@ -8,7 +8,7 @@ Draw on the canvas to measure a region. It starts with your default shape, a cir
 
 Shapes: circle, rectangle, freehand, flood fill. The button at the bottom right, left of the logo, shows the shape you are drawing; click it to change shape. The menu says how to draw the shape under the pointer, and links to Preferences for the shape `i` starts with. Holding `Alt` (`Option` on Mac) opens the same menu at the pointer: release over a button to pick it, or tap `Alt` to keep the menu open.
 
-For flood fill, `[` / `]` adjusts tolerance. While holding the seed, drag up/down to take in more or less, and right/left for smoother or rougher edges (off, then 1 to 5). Smoothing blurs the image lightly before deciding what joins, then rounds the region's edge and fills small holes.
+For flood fill, `[` / `]` adjusts tolerance. While holding the seed, drag up/down to take in more or less, and right/left for smoother or rougher edges (from off to 5; it starts at 2.5 and remembers your last setting). For a 3D fill, the card beside the cursor says when the full 3D region is still catching up. Smoothing blurs the image lightly before deciding what joins, then rounds the region's edge and fills small holes.
 
 Click an existing ROI to select it. `Delete` / `Backspace` removes it.
 
