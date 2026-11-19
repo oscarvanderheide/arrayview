@@ -948,32 +948,17 @@
                   pointer-events: none; z-index: 6; max-width: calc(100vw - 116px); overflow: hidden;
                   text-overflow: ellipsis; opacity: 0; transition: opacity 0.3s ease; }
         #toast.visible { opacity: 1; }
-        /* Magic wand: a square beside the cursor while the seed is held, in the
-           window/level HUD's style. Dot: x = smoothing (0..5), y = sensitivity
-           (log, 1 %..100 %, up = more). Each side names what dragging that way
-           does. After releasing a 3D grow, a bar fills once over the predicted wait. */
+        /* Magic wand: after releasing a 3D grow, a small spinner beside the
+           cursor until the full region lands. Nothing is shown while dragging. */
         #roi-fill-hud {
             position: fixed; z-index: 100; display: none; pointer-events: none;
-            grid-template-areas: '. t .' 'l b r' '. d .' '. w .'; align-items: center; justify-items: center; gap: 3px 5px;
-            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
-            line-height: 1; white-space: nowrap;
+            width: 14px; height: 14px; border-radius: 50%; box-sizing: border-box;
+            border: 2px solid rgba(255,255,255,0.35); border-top-color: var(--active-dim);
+            box-shadow: 0 0 0 1px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(0,0,0,0.6);
+            animation: roi-fill-spin 0.8s linear infinite;
         }
-        #roi-fill-hud.visible { display: grid; }
-        #roi-fill-hud svg { display: block; filter: drop-shadow(0 0 1px rgba(0,0,0,0.75)) drop-shadow(0 0 2.5px rgba(0,0,0,0.5)); }
-        #roi-fill-hud .fill-box { fill: rgba(0,0,0,0.32); stroke: rgba(255,255,255,0.65); stroke-width: 1.1; }
-        #roi-fill-hud .fill-dot { fill: var(--active-dim); stroke: #000; stroke-width: 0.8; }
-        #roi-fill-hud .fill-hint {
-            font-size: 11px; letter-spacing: 0.04em;
-            color: #fff; -webkit-text-stroke: var(--on-image-stroke); paint-order: stroke fill;
-        }
-        #roi-fill-hud .fill-top { grid-area: t; } #roi-fill-hud .fill-left { grid-area: l; } #roi-fill-hud svg { grid-area: b; }
-        #roi-fill-hud .fill-right { grid-area: r; } #roi-fill-hud .fill-bottom { grid-area: d; } #roi-fill-hud .fill-load { grid-area: w; }
-        #roi-fill-hud .fill-load {
-            display: none; width: 56px; height: 3px; margin-top: 2px; border-radius: 2px; overflow: hidden;
-            background: rgba(0,0,0,0.45); box-shadow: 0 0 0 1px rgba(0,0,0,0.6);
-        }
-        #roi-fill-hud.wait-3d .fill-load { display: block; }
-        #roi-fill-hud .fill-load > span { display: block; height: 100%; width: 0; background: var(--active-dim); }
+        #roi-fill-hud.visible { display: block; }
+        @keyframes roi-fill-spin { to { transform: rotate(360deg); } }
         body.zen-mode #toast { display: none; }
         #pixel-info { display: none; } /* replaced by .cv-pixel-info per-canvas overlays */
         .cv-pixel-info {
@@ -1389,7 +1374,7 @@
             display: none; position: absolute; right: 0; bottom: calc(100% + 6px);
             width: 190px; padding: 6px 8px; pointer-events: none;
             background: var(--surface); border: 1px solid var(--border-subtle); border-radius: 8px;
-            color: var(--text); font-size: 10px; line-height: 13px;
+            color: var(--text); font-size: 10px; line-height: 13px; white-space: pre-line;
         }
         #roi-toolbar .roi-menu-cap.show { display: block; }
         #roi-toolbar button.roi-menu-pref {
@@ -21019,7 +21004,7 @@
             circle: ['Circle', 'drag across the region'],
             rect: ['Rectangle', 'drag from corner to corner'],
             freehand: ['Freehand', 'draw the outline around the region'],
-            floodfill: ['Flood fill', 'hold on a pixel; drag up to take in more, down for less, right for smoother edges'],
+            floodfill: ['Flood fill', 'Hold on a pixel and drag:\nup: take in more\ndown: take in less\nright: smoother edges\nleft: sharper edges\nLet go to keep the region.'],
         };
         let _roiMenuDownAt = 0;
         let _roiMenuPos = null;
@@ -21032,7 +21017,7 @@
             circle: 'Circle · drag on the image',
             rect: 'Rectangle · drag on the image',
             freehand: 'Freehand · draw the outline on the image',
-            floodfill: 'Flood fill · hold on the image, drag up to take in more, down for less, right for smoother edges',
+            floodfill: 'Flood fill · hold on the image, drag up to take in more, down for less, right for smoother edges, left for sharper',
         };
 
         // One line per pane (side by side) or per map (qMRI) under each ROI.
@@ -28932,68 +28917,28 @@
 
         let _roiFillGaugeActive = false;
         let _roiFillHudWasOn = false;
-        // Last 3D release->region wait and the plane region size it came with;
-        // the next wait is predicted by scaling with the plane size.
-        let _roiFill3dWait = { ms: 300, n: 0 };
-        function _roiFill3dPredictWait(n) {
-            const w = _roiFill3dWait;
-            if (!w.n || !n) return w.ms;
-            return w.ms * Math.max(0.4, Math.min(3, Math.pow(n / w.n, 1.5)));
-        }
-        function _roiFill3dRecordWait(drag) {
-            if (!drag.releasedAt) return;
-            _roiFill3dWait = { ms: Math.max(80, performance.now() - drag.releasedAt), n: (drag.local && drag.local.n) || 0 };
-        }
-        // While the seed is held, a small card beside the cursor shows both
-        // drag readings: sensitivity (up/down) and edge smoothing (left/right).
+        // Nothing is drawn while the seed is held: eyes are on the region.
+        // A 3D grow flashes its axes in the info bar when the hold starts, and
+        // after release shows a spinner by the cursor until the region lands.
         function _reconcileFloodfillSensitivityHud() {
             const drag = _roiFloodFillDrag;
             const is3d = !!drag && Number.isInteger(drag.scopeDim) && drag.scopeDim >= 0;
-            // A 3D grow keeps the card up after release until its region lands.
-            const active = !!(rectRoiMode && _roiShape === 'floodfill' && drag && (drag.released ? is3d : _roiFillGaugeActive));
-            const wasActive = _roiFillHudWasOn;
-            _roiFillHudWasOn = active;
+            const holding = !!(rectRoiMode && _roiShape === 'floodfill' && drag && !drag.released && _roiFillGaugeActive);
+            if (holding && !_roiFillHudWasOn && is3d) _pulseFloodfillScopeDims(drag);
+            _roiFillHudWasOn = holding;
+            const waiting = !!(rectRoiMode && _roiShape === 'floodfill' && drag && drag.released && is3d);
             let hud = document.getElementById('roi-fill-hud');
-            if (!hud && !active) return;
-            const S = 56, M = 2; // square side and margin, px
+            if (!hud && !waiting) return;
             if (!hud) {
                 hud = document.createElement('div');
                 hud.id = 'roi-fill-hud';
-                hud.innerHTML = '<span class="fill-hint fill-top">grow</span>'
-                    + '<span class="fill-hint fill-left">sharp</span>'
-                    + `<svg width="${S + 2 * M}" height="${S + 2 * M}" viewBox="0 0 ${S + 2 * M} ${S + 2 * M}">`
-                    + `<rect class="fill-box" x="${M}" y="${M}" width="${S}" height="${S}" rx="2"/>`
-                    + '<circle class="fill-dot" r="3"/></svg>'
-                    + '<span class="fill-hint fill-right">smooth</span>'
-                    + '<span class="fill-hint fill-bottom">shrink</span>'
-                    + '<span class="fill-load"><span></span></span>';
                 document.body.appendChild(hud);
             }
-            hud.classList.toggle('visible', active);
-            if (!active) { hud._waitFor = null; return; }
-            if (!wasActive && is3d) _pulseFloodfillScopeDims(drag);
-            const fx = Math.max(0, Math.min(1, (drag.smooth || 0) / 5));
-            const fy = Math.max(0, Math.min(1, Math.log(drag.tolerance / 0.01) / Math.log(100)));
-            const dot = hud.querySelector('.fill-dot');
-            dot.setAttribute('cx', M + fx * S); dot.setAttribute('cy', M + (1 - fy) * S);
-            // After release, the full 3D region is fetched once: fill the bar
-            // a single time over the predicted wait, to 95 %; it lands on arrival.
-            const waiting = is3d && drag.released;
-            hud.classList.toggle('wait-3d', waiting);
-            if (waiting && hud._waitFor !== drag) {
-                hud._waitFor = drag;
-                const bar = hud.querySelector('.fill-load > span');
-                bar.style.transition = 'none';
-                bar.style.width = '0';
-                void bar.offsetWidth;
-                bar.style.transition = `width ${Math.round(drag.waitPredictMs || 300)}ms cubic-bezier(.3,.5,.5,1)`;
-                bar.style.width = '95%';
-            }
-            const w = hud.offsetWidth, h = hud.offsetHeight;
-            const cx = drag.clientX, cy = drag.clientY;
-            const x = cx + 22 + w <= window.innerWidth - 8 ? cx + 22 : cx - w - 22;
-            hud.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, x))}px`;
-            hud.style.top = `${Math.max(8, Math.min(window.innerHeight - h - 8, cy - h / 2))}px`;
+            hud.classList.toggle('visible', waiting);
+            if (!waiting) return;
+            const cx = drag.clientX, cy = drag.clientY; // where the seed was let go
+            hud.style.left = `${Math.max(4, Math.min(window.innerWidth - 18, cx + 14))}px`;
+            hud.style.top = `${Math.max(4, Math.min(window.innerHeight - 18, cy + 14))}px`;
         }
         function _pulseFloodfillScopeDims(drag) {
             const info = document.getElementById('info');
@@ -29238,7 +29183,6 @@
                     _reconcileFloodfillSensitivityHud();
                     if (drag.released && !drag.dataLite && _roiFloodFillDataCurrent(drag)) {
                         _roiFloodFillDrag = null;
-                        _roiFill3dRecordWait(drag);
                         _commitFloodFillData(data, { editIdx: drag.editIdx, px: drag.px, py: drag.py, tolerance, smooth, view: drag.view });
                         _reconcileFloodfillSensitivityHud();
                     }
@@ -29408,10 +29352,6 @@
                 window.removeEventListener('mouseup', onUp);
                 if (_roiFloodFillDrag !== drag) return;
                 drag.released = true;
-                if (_roiFloodFillIs3d(drag)) {
-                    drag.releasedAt = performance.now();
-                    drag.waitPredictMs = _roiFill3dPredictWait(drag.local && drag.local.n);
-                }
                 _updateRoiFloodfillSensitivityIndicator(drag.tolerance, false);
                 if (drag.data && !drag.dataLite && _roiFloodFillDataCurrent(drag)) {
                     _roiFloodFillDrag = null;
