@@ -248,7 +248,20 @@
             background: rgba(0, 0, 0, 0.5); color: #fff;
             font-size: 24px; line-height: 1;
         }
-        #playback-flash .pf-disc .pf-double { font-size: 18px; letter-spacing: -6px; margin-left: -6px; }
+        #playback-flash .pf-disc { position: relative; }
+        #playback-flash .pf-glyph { position: relative; }
+        /* Speed ring: fills clockwise from min to max fps (log scale, so
+           every < / > press moves it the same amount). */
+        #playback-flash .pf-ring {
+            position: absolute; inset: 0; width: 100%; height: 100%;
+            transform: rotate(-90deg); fill: none; stroke-width: 3;
+        }
+        #playback-flash .pf-ring-track { stroke: rgba(255, 255, 255, 0.18); }
+        #playback-flash .pf-ring-fill {
+            stroke: #fff; stroke-linecap: round;
+            transition: stroke-dashoffset 0.15s ease;
+        }
+        #playback-flash.pf-no-ring .pf-ring { display: none; }
         #playback-flash .pf-label {
             padding: 4px 10px; border-radius: 11px;
             background: rgba(0, 0, 0, 0.55); color: #fff;
@@ -27269,6 +27282,7 @@
         let _playbackFlash = null;
         let _playbackFlashTimer = null;
         const PLAYBACK_FLASH_MS = { play: 2000, pause: 750, faster: 1125, slower: 1125 };
+        const PLAYBACK_FPS_MIN = 1, PLAYBACK_FPS_MAX = 120; // limits of the < / > keys
 
         function _flashPlayback(kind) {
             _playbackFlash = kind;
@@ -27288,24 +27302,25 @@
                 el = document.createElement('div');
                 el.id = 'playback-flash';
                 el.setAttribute('aria-hidden', 'true');
-                el.innerHTML = '<div class="pf-disc"></div><div class="pf-label"></div>';
+                el.innerHTML = '<div class="pf-disc">'
+                    + '<svg class="pf-ring" viewBox="0 0 64 64"><circle class="pf-ring-track" cx="32" cy="32" r="29.5"/>'
+                    + '<circle class="pf-ring-fill" cx="32" cy="32" r="29.5" pathLength="100" stroke-dasharray="100"/></svg>'
+                    + '<span class="pf-glyph"></span></div><div class="pf-label"></div>';
                 row.appendChild(el);
             }
             const kind = _playbackFlash;
             if (!kind) { el.classList.remove('is-visible'); return; }
-            const glyph = {
-                play: '&#9654;&#xFE0E;',
-                pause: '&#10074;&#10074;',
-                faster: '<span class="pf-double">&#9654;&#xFE0E;&#9654;&#xFE0E;</span>',
-                slower: '<span class="pf-double">&#9664;&#xFE0E;&#9664;&#xFE0E;</span>',
-            }[kind];
+            const glyph = kind === 'pause' ? '&#10074;&#10074;' : '&#9654;&#xFE0E;';
             const label = kind === 'pause' ? ''
                 : kind === 'play'
                     ? `${playFps} fps<span class="pf-hint">&lt; &gt; to change speed</span>`
                     : `${playFps} fps`;
-            const disc = el.querySelector('.pf-disc');
+            const g = el.querySelector('.pf-glyph');
             const lab = el.querySelector('.pf-label');
-            if (disc.dataset.kind !== kind) { disc.innerHTML = glyph; disc.dataset.kind = kind; }
+            if (g.dataset.kind !== glyph) { g.innerHTML = glyph; g.dataset.kind = glyph; }
+            el.classList.toggle('pf-no-ring', kind === 'pause');
+            const frac = Math.log(playFps / PLAYBACK_FPS_MIN) / Math.log(PLAYBACK_FPS_MAX / PLAYBACK_FPS_MIN);
+            el.querySelector('.pf-ring-fill').style.strokeDashoffset = String(100 * (1 - Math.max(0, Math.min(1, frac))));
             if (lab.innerHTML !== label) lab.innerHTML = label;
             el.classList.add('is-visible');
         }
@@ -32098,7 +32113,7 @@
                     let next = up ? playFps * 1.12 : playFps / 1.12;
                     next = Math.round(next);
                     if (next === playFps) next = playFps + (up ? 1 : -1);
-                    playFps = Math.max(1, Math.min(120, next));
+                    playFps = Math.max(PLAYBACK_FPS_MIN, Math.min(PLAYBACK_FPS_MAX, next));
                     _userPlayFps = playFps;
                     _flashPlayback(up ? 'faster' : 'slower');
                     return;
