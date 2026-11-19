@@ -29232,14 +29232,33 @@
                 });
         }
 
+        // A 3D grow first gathers every slice on the server; ask for that while
+        // the cursor hovers so the press doesn't wait for it. The server drops
+        // it again after each release, so the key is cleared then.
+        let _roiFill3dWarmKey = null;
+        function _roiFill3dWarm(view) {
+            const scopeDim = _roiResolvedFloodfillScopeDim(view);
+            if (!Number.isInteger(scopeDim) || scopeDim < 0) return;
+            const dx = view ? view.dimX : dim_x, dy = view ? view.dimY : dim_y;
+            if (scopeDim === dx || scopeDim === dy) return;
+            const other = indices.map((v, i) => (i === dx || i === dy || i === scopeDim) ? '' : v).join(',');
+            const key = `${sid}|${dx}|${dy}|${scopeDim}|${complexMode}|${other}|${_floodFillSmooth}`;
+            if (key === _roiFill3dWarmKey) return;
+            _roiFill3dWarmKey = key;
+            const params = new URLSearchParams({
+                dim_x: String(dx), dim_y: String(dy), indices: indices.join(','),
+                scope_dim: String(scopeDim), complex_mode: String(complexMode), smooth: String(_floodFillSmooth),
+            });
+            proxyFetch(`/roi_floodfill_warm/${sid}?${params}`).catch(() => { _roiFill3dWarmKey = null; });
+        }
         // Fetch the plane under the cursor before the press, so the very first
         // preview needs no round trip.
         document.addEventListener('pointermove', e => {
             if (!rectRoiMode || _roiShape !== 'floodfill' || _roiFloodFillDrag || !sid) return;
-            if (e.target === canvas && !multiViewActive && !qmriActive && !compareActive) { _roiFillRawFor(null); return; }
+            if (e.target === canvas && !multiViewActive && !qmriActive && !compareActive) { _roiFillRawFor(null); _roiFill3dWarm(null); return; }
             if (multiViewActive) {
                 const view = mvViews.find(v => v.canvas === e.target);
-                if (view) _roiFillRawFor(view);
+                if (view) { _roiFillRawFor(view); _roiFill3dWarm(view); }
             }
         }, { passive: true });
         function _roiFloodfillScopeControlsVisible() {
@@ -29379,6 +29398,7 @@
                 window.removeEventListener('mouseup', onUp);
                 if (_roiFloodFillDrag !== drag) return;
                 drag.released = true;
+                _roiFill3dWarmKey = null; // the full fetch frees the server's volume
                 _updateRoiFloodfillSensitivityIndicator(drag.tolerance, false);
                 if (drag.data && !drag.dataLite && _roiFloodFillDataCurrent(drag)) {
                     _roiFloodFillDrag = null;

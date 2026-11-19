@@ -2,6 +2,7 @@ import base64
 import io
 import itertools
 import math
+import os
 import threading
 
 import numpy as np
@@ -242,6 +243,33 @@ def register_analysis_routes(app, get_session_or_404) -> None:
                 )
 
         return {"rows": rows}
+
+    @app.get("/roi_floodfill_warm/{sid}")
+    def get_roi_floodfill_warm(
+        sid: str,
+        dim_x: int,
+        dim_y: int,
+        indices: str,
+        scope_dim: int,
+        complex_mode: int = 0,
+        smooth: float = 0.0,
+        session=Depends(get_session_or_404),
+    ):
+        """Gather (and smooth) the 3D wand volume while the cursor hovers."""
+        if session.rgb_axis is not None:
+            return {"ok": False}
+        shape = session.shape
+        idx = [int(v) for v in indices.split(",")][: len(shape)]
+        idx += [s // 2 for s in shape[len(idx):]]
+        idx = [min(max(v, 0), shape[i] - 1) for i, v in enumerate(idx)]
+        if scope_dim in {dim_x, dim_y} or not (0 <= scope_dim < len(shape)):
+            return {"ok": False}
+        volume, _r = _scoped_floodfill_volume(session, dim_x, dim_y, idx, complex_mode, int(scope_dim))
+        smooth = round(max(0.0, min(_FLOODFILL_SMOOTH_MAX, float(smooth))), 2)
+        if smooth > 0:
+            # Whole volume: every box the grow asks for is then a slice of it.
+            _blurred_box(volume, smooth, [0, 0, 0], list(volume.shape))
+        return {"ok": True}
 
     @app.get("/roi_floodfill/{sid}")
     def get_roi_floodfill(
@@ -639,6 +667,29 @@ _FLOODFILL_VOLUME_LOCK = threading.Lock()
 # Last scoped grow, so the release request reuses the region the last drag
 # step already grew instead of growing it again (the grow dominates release).
 _FLOODFILL_GROW_CACHE: dict = {}
+# Recent smoothed copies of the image: (volume, smooth, lo, hi, blurred).
+# Dragging only the sensitivity reuses them; a box inside one is a slice of it.
+_FLOODFILL_BLUR_CACHE: dict = {}
+
+
+def _blurred_box(volume, smooth, elo, ehi):
+    """In-plane blur of volume[elo:ehi] (sigma smooth/2), reusing a recent one.
+
+    Two entries: the seed-plane sizing pass and the 3D box would evict each
+    other from a single slot on every sensitivity step.
+    """
+    entries = _FLOODFILL_BLUR_CACHE.get("entries", [])
+    for vol, sm, lo, hi, arr in entries:
+        if vol is volume and sm == smooth and all(lo[i] <= elo[i] and ehi[i] <= hi[i] for i in range(3)):
+            return arr[
+                elo[0] - lo[0]: ehi[0] - lo[0],
+                elo[1] - lo[1]: ehi[1] - lo[1],
+                elo[2] - lo[2]: ehi[2] - lo[2],
+            ]
+    sub = volume[elo[0]:ehi[0], elo[1]:ehi[1], elo[2]:ehi[2]]
+    out = _blur_planes(sub, smooth / 2.0)
+    _FLOODFILL_BLUR_CACHE["entries"] = [(volume, smooth, list(elo), list(ehi), out)] + entries[:1]
+    return out
 
 
 # Edge smoothing for the magic wand, a continuous level s in 0 (off) ..
@@ -649,8 +700,31 @@ _FLOODFILL_GROW_CACHE: dict = {}
 _FLOODFILL_SMOOTH_MAX = 5.0
 
 
+_FLOODFILL_POOL = None
+
+
+def _by_plane_chunks(fn, arr: np.ndarray) -> np.ndarray:
+    """fn applied to z-chunks of a [z, y, x] array on a few threads (scipy
+    releases the GIL). Only for per-plane work: the result equals fn(arr)."""
+    global _FLOODFILL_POOL
+    nt = min(4, os.cpu_count() or 1, arr.shape[0])
+    if nt < 2 or arr.size < 1_000_000:
+        return fn(arr)
+    if _FLOODFILL_POOL is None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        _FLOODFILL_POOL = ThreadPoolExecutor(4, thread_name_prefix="av-floodfill")
+    bounds = np.linspace(0, arr.shape[0], nt + 1).astype(int)
+    parts = list(_FLOODFILL_POOL.map(lambda i: fn(arr[bounds[i]:bounds[i + 1]]), range(nt)))
+    return np.concatenate(parts, axis=0)
+
+
 def _blur_planes(values: np.ndarray, sigma: float) -> np.ndarray:
     """Gaussian blur of each [y, x] plane of a [z, y, x] array; NaNs ignored."""
+    return _by_plane_chunks(lambda a: _blur_planes_one(a, sigma), values)
+
+
+def _blur_planes_one(values: np.ndarray, sigma: float) -> np.ndarray:
     from scipy.ndimage import gaussian_filter
 
     sig = (0, sigma, sigma)
@@ -681,8 +755,7 @@ def _grow_in_box(volume, seed, abs_tol, smooth, lo, hi):
     # The image blur needs r_img of real neighbours in-plane around the box.
     elo = [lo[0]] + [max(0, lo[i] - r_img) for i in (1, 2)]
     ehi = [hi[0]] + [min(shape[i], hi[i] + r_img) for i in (1, 2)]
-    sub = volume[elo[0]:ehi[0], elo[1]:ehi[1], elo[2]:ehi[2]]
-    img = _blur_planes(sub, smooth / 2.0) if smooth > 0 else sub
+    img = _blurred_box(volume, smooth, elo, ehi) if smooth > 0 else volume[elo[0]:ehi[0], elo[1]:ehi[1], elo[2]:ehi[2]]
     img = img[
         :,
         lo[1] - elo[1]: lo[1] - elo[1] + (hi[1] - lo[1]),
@@ -702,8 +775,6 @@ def _grow_in_box(volume, seed, abs_tol, smooth, lo, hi):
             hit.append(axis)
     if hit or smooth <= 0 or not grown.any():
         return grown, seed_val, hit
-    from scipy.ndimage import binary_fill_holes
-
     # Round the edge only around the region: its bounding box plus the mask
     # blur reach (outside it the blurred mask is exactly zero).
     zz, yy, xx = (np.flatnonzero(grown.any(axis=a)) for a in ((1, 2), (0, 2), (0, 1)))
@@ -717,11 +788,34 @@ def _grow_in_box(volume, seed, abs_tol, smooth, lo, hi):
     rounded = _connected_component(rounded, sub_seed)
     if not rounded.any():
         return grown, seed_val, hit
-    for z in np.flatnonzero(rounded.any(axis=(1, 2))):
-        rounded[z] = binary_fill_holes(rounded[z])
+    rounded = _fill_holes_in_plane(rounded)
     out = np.zeros_like(grown)
     out[sub] = rounded
     return out, seed_val, hit
+
+
+def _fill_holes_in_plane(mask):
+    """binary_fill_holes on every [y, x] plane of a [z, y, x] mask."""
+    return _by_plane_chunks(_fill_holes_in_plane_one, mask)
+
+
+def _fill_holes_in_plane_one(mask):
+    """binary_fill_holes on every [y, x] plane of a [z, y, x] mask, in one pass.
+
+    Background is labelled with 4-connectivity within each plane only; pieces
+    that touch a plane's y/x border are outside, the rest are holes.
+    """
+    from scipy.ndimage import label
+
+    st = np.zeros((3, 3, 3), dtype=bool)
+    st[1, 1, :] = st[1, :, 1] = True
+    bg = ~mask
+    lab, n = label(bg, structure=st)
+    outside = np.zeros(n + 1, dtype=bool)
+    for face in (lab[:, 0, :], lab[:, -1, :], lab[:, :, 0], lab[:, :, -1]):
+        outside[face.ravel()] = True
+    outside[0] = True  # label 0 is the mask itself
+    return mask | ~outside[lab]
 
 
 def _grow_floodfill(volume, seed, abs_tol, smooth=0.0):
@@ -871,6 +965,7 @@ def _scoped_floodfill_response(
     with _FLOODFILL_VOLUME_LOCK:
         _FLOODFILL_VOLUME_CACHE.clear()
         _FLOODFILL_GROW_CACHE.clear()
+        _FLOODFILL_BLUR_CACHE.clear()
 
     slices = []
     scoped_values = []
