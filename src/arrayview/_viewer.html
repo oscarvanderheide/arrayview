@@ -36387,6 +36387,12 @@
          * Keys named in the text must be exactly what the keymap binds —
          * check `keybinds` before changing one.
          */
+        // The region steps after the first assume drawing is on; a reload or
+        // a jump into the middle of the chapter would otherwise land with it off.
+        function _tutorialRoiOn() {
+            if (!_pixelInfoVisible) commands['hoverinfo.toggle'].run(makeContext(null), null);
+        }
+
         const _TUTORIAL_SECTIONS = [
             {
                 id: 'moving', stage: 'single',
@@ -36605,9 +36611,31 @@
                     },
                     {
                         key: 'i',
-                        text: 'Press i to draw regions.\nDrag on the image to draw one.\nA panel shows what is inside.',
-                        note: 'The button at the bottom right changes the shape.\nPress i again to stop.',
+                        text: 'Press i to draw your own regions.\nThe value under the mouse shows as before.\nDrag on the image to draw a region.',
+                        note: 'A panel opens with the mean and spread of each region.',
                         expect: ['hoverinfo.toggle'],
+                    },
+                    {
+                        text: 'The button at the bottom right shows the shape you draw.\nClick it to pick another shape.\nCircle, rectangle, freehand or flood fill.',
+                        note: `Holding ${_ALT_KEY_NAME} opens the same choice at the mouse.\nRelease over a shape to pick it.`,
+                        spotlight: '#roi-shape-btn',
+                        onEnter: _tutorialRoiOn,
+                    },
+                    {
+                        text: 'Pick flood fill, then press and hold on the tent.\nThe region grows from there over similar values.\nDrag up and down to let it spread more or less.',
+                        note: 'Drag left and right to smooth its edges.\nLet go to keep it.',
+                        onEnter: _tutorialRoiOn,
+                    },
+                    {
+                        text: 'With flood fill picked, click a number at the top.\nThe next region also grows through that dimension.\nClick it again to grow on this slice only.',
+                        spotlight: '#info',
+                        onEnter: _tutorialRoiOn,
+                    },
+                    {
+                        text: 'Hover a row in the panel to find its region on the image.\nClick a row to see how its values are spread.\nBackspace removes the last region you drew.',
+                        note: 'Press i to stop drawing.\nYour regions stay until you delete them.',
+                        expect: ['roi.deleteSelected'],
+                        onEnter: _tutorialRoiOn,
                     },
                 ],
             },
@@ -37248,8 +37276,10 @@
             // It is the one key the tour takes for itself, and only while
             // it is offering — every other press is you exploring.
             // Enter also confirms the `p` choices, a typed slice number and
-            // the segmentation tool; those keep it while they are up.
-            const enterTaken = !!_modePicker || sliceJumpBuffer.length > 0 || _segMode;
+            // the segmentation tool and the `s` pane-count strip; those keep
+            // it while they are up.
+            const enterTaken = !!_modePicker || sliceJumpBuffer.length > 0 || _segMode
+                || _spreadPick.active;
             if (_tutorialSkip && event.key === 'Enter' && !typing && !enterTaken
                 && !event.ctrlKey && !event.metaKey && !event.altKey
                 && !_tutorialPanelOpen()) {
