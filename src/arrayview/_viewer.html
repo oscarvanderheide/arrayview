@@ -24804,11 +24804,9 @@
                     const glyph = i === _mosaicAcross() ? '→' : i === _mosaicDown() ? '↓' : '';
                     // Across is the same ↓ glyph turned, so both arrows match.
                     const letter = glyph ? `<span class="dim-axis-letter dim-mode-letter${glyph === '→' ? ' dim-mosaic-across' : ''}">↓</span>` : '<span class="dim-axis-letter">z</span>';
-                    // A thinned dim shows which slices it tiles, as typed (10:2:60).
-                    const sel = _mosaicSel(i);
+                    // Just z, thinned or not; only a range being typed shows here.
                     const typing = sliceJumpBuffer.includes(':') && i === _mosaicRangeDim();
-                    const rng = typing ? `<span class="dim-idx dim-idx-pending">${sliceJumpBuffer}</span>`
-                        : sel.thinned ? `<span class="dim-idx">${_mosaicSelText(sel)}</span>` : '';
+                    const rng = typing ? `<span class="dim-idx dim-idx-pending">${sliceJumpBuffer}</span>` : '';
                     const inner = `${letter}${rng ? '&#8202;' + rng : ''}<span class="dim-slash">/</span><span class="dim-size" id="dim-${k}-size">${sizeOf(i)}</span>`;
                     return (active || playing) ? `<span class="spatial-dim ${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
@@ -31354,12 +31352,6 @@
             const a = num(parts[0], 1), c = three ? num(parts[1], 1) : 1, b = Math.min(N, num(parts[three ? 2 : 1], N));
             if (!(a >= 1 && a <= N && b >= a && c >= 1)) { showToast(`range ${buf}: slices go 1–${N}`); return; }
             _mosaicApplyPick(d, { start: a - 1, stop: b, step: c });
-        }
-        // The dim bar text of a thinned dim, in the same numbers as typed.
-        function _mosaicSelText(sel) {
-            const a = sel.start + 1;
-            const last = sel.at(sel.last) + 1;
-            return sel.step === 1 ? `${a}:${last}` : `${a}:${sel.step}:${last}`;
         }
 
         // Scroll over a thinned mosaic: the shown slices move by one. A whole
