@@ -29299,8 +29299,15 @@
             if (idx >= shape[sliceAxis]) return null;
             // Lazily decode + cache the full 3D mask on the roi.
             if (!r._mask3dBytes || r._mask3dKey !== r.mask3d_b64) {
-                const bytes = _roiDecodeMaskBytes(r.mask3d_b64, null);
+                let bytes = _roiDecodeMaskBytes(r.mask3d_b64, null);
                 if (!bytes) return null;
+                if (r.mask3d_bits) {
+                    // Server packs 8 voxels per byte, lowest bit first.
+                    const n = r.mask3d_shape[0] * r.mask3d_shape[1] * r.mask3d_shape[2];
+                    const out = new Uint8Array(n);
+                    for (let i = 0; i < n; i++) out[i] = (bytes[i >> 3] >> (i & 7)) & 1;
+                    bytes = out;
+                }
                 r._mask3dBytes = bytes; r._mask3dKey = r.mask3d_b64;
             }
             const bytes = r._mask3dBytes;

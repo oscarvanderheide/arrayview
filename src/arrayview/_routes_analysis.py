@@ -2,6 +2,7 @@ import base64
 import io
 import itertools
 import math
+import threading
 
 import numpy as np
 from fastapi import Body, Depends, Response
@@ -635,6 +636,45 @@ def _encode_mask_b64(mask: np.ndarray, bbox: dict) -> str:
     return base64.b64encode(sub.tobytes()).decode("ascii")
 
 
+# Last stacked volume a scoped flood fill grew through. Dragging the
+# sensitivity re-runs the fill many times on the same volume; restacking it and
+# rescanning its value range each step is wasted work. One entry only.
+_FLOODFILL_VOLUME_CACHE: dict = {}
+_FLOODFILL_VOLUME_LOCK = threading.Lock()
+
+
+def _scoped_floodfill_volume(session, dim_x, dim_y, indices, complex_mode, scope_dim):
+    """Return ``(volume, abs_range)`` for a scoped grow; volume is [scope, y, x]."""
+    other = tuple(v for i, v in enumerate(indices) if i not in (dim_x, dim_y, scope_dim))
+    key = (
+        session.sid,
+        id(session.data),
+        getattr(session, "data_version", 0),
+        int(dim_x),
+        int(dim_y),
+        int(scope_dim),
+        int(complex_mode),
+        other,
+    )
+    with _FLOODFILL_VOLUME_LOCK:
+        hit = _FLOODFILL_VOLUME_CACHE.get("entry")
+        if hit is not None and hit[0] == key:
+            return hit[1], hit[2]
+    planes = []
+    for value in range(session.shape[scope_dim]):
+        idx = list(indices)
+        idx[scope_dim] = value
+        planes.append(
+            apply_complex_mode(extract_slice(session, dim_x, dim_y, idx), complex_mode)
+        )
+    volume = np.stack(planes, axis=0)
+    mag = np.abs(volume)
+    abs_range = float(np.nanmax(mag) - np.nanmin(mag) + 1e-10)
+    with _FLOODFILL_VOLUME_LOCK:
+        _FLOODFILL_VOLUME_CACHE["entry"] = (key, volume, abs_range)
+    return volume, abs_range
+
+
 def _scoped_floodfill_response(
     session,
     dim_x: int,
@@ -659,25 +699,16 @@ def _scoped_floodfill_response(
         return {"error": "scope_dim must be exactly one non-display dimension"}
 
     values = list(range(shape[scope_dim]))
-    planes = []
-    for value in values:
-        idx = list(indices)
-        idx[scope_dim] = value
-        planes.append(
-            apply_complex_mode(
-                extract_slice(session, dim_x, dim_y, idx), complex_mode
-            )
-        )
-    volume = np.stack(planes, axis=0)
+    volume, abs_range = _scoped_floodfill_volume(
+        session, dim_x, dim_y, indices, complex_mode, scope_dim
+    )
     depth, h, w = volume.shape
     if not (0 <= py < h and 0 <= px < w):
         return {"error": "seed out of bounds"}
 
     seed_z = values.index(indices[scope_dim])
     seed_val = float(volume[seed_z, py, px])
-    abs_tol = tolerance * (
-        np.nanmax(np.abs(volume)) - np.nanmin(np.abs(volume)) + 1e-10
-    )
+    abs_tol = tolerance * abs_range
     mask = np.abs(volume - seed_val) <= abs_tol
     component = _connected_component(mask, (seed_z, py, px))
     roi_values = volume[component]
@@ -706,6 +737,10 @@ def _scoped_floodfill_response(
             "mask_b64": _encode_mask_b64(plane, bbox),
             "preview": True,
         }
+
+    # Release: the drag is over, so free the held volume.
+    with _FLOODFILL_VOLUME_LOCK:
+        _FLOODFILL_VOLUME_CACHE.clear()
 
     slices = []
     scoped_values = []
@@ -743,7 +778,11 @@ def _scoped_floodfill_response(
         # every multiview pane, not just the plane it was seeded on. Shape
         # axes are [scope_dim, dim_y, dim_x] (the grow axes); grow_dim_x /
         # grow_dim_y record which data dims those are.
-        "mask3d_b64": base64.b64encode(component.astype(np.uint8).tobytes()).decode("ascii"),
+        # Bit-packed (LSB first, C order): 8x smaller than one byte per voxel.
+        "mask3d_b64": base64.b64encode(
+            np.packbits(component, axis=None, bitorder="little").tobytes()
+        ).decode("ascii"),
+        "mask3d_bits": True,
         "mask3d_shape": [int(s) for s in component.shape],
         "grow_dim_x": int(dim_x),
         "grow_dim_y": int(dim_y),
