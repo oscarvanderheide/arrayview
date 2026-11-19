@@ -255,7 +255,8 @@
             font-size: 12px; line-height: 14px;
         }
         #playback-flash .pf-label:empty { display: none; }
-        #playback-flash .pf-hint { color: #c4c4c4; }
+        #playback-flash .pf-label { text-align: center; }
+        #playback-flash .pf-hint { display: block; margin-top: 2px; color: #c4c4c4; font-size: 11px; }
         :root.light #info {
             background-color: rgba(240, 240, 240, 0.85);
             border-color: rgba(0, 0, 0, 0.08);
@@ -27267,7 +27268,7 @@
         // kind: 'play' | 'pause' | 'faster' | 'slower'; null = hidden.
         let _playbackFlash = null;
         let _playbackFlashTimer = null;
-        const PLAYBACK_FLASH_MS = { play: 1600, pause: 600, faster: 900, slower: 900 };
+        const PLAYBACK_FLASH_MS = { play: 2000, pause: 750, faster: 1125, slower: 1125 };
 
         function _flashPlayback(kind) {
             _playbackFlash = kind;
@@ -27300,7 +27301,7 @@
             }[kind];
             const label = kind === 'pause' ? ''
                 : kind === 'play'
-                    ? `${playFps} fps<span class="pf-hint"> · &lt; &gt; to change speed</span>`
+                    ? `${playFps} fps<span class="pf-hint">&lt; &gt; to change speed</span>`
                     : `${playFps} fps`;
             const disc = el.querySelector('.pf-disc');
             const lab = el.querySelector('.pf-label');
@@ -27310,9 +27311,8 @@
         }
 
         function _initialPlaybackFps(size) {
-            // Aim for one pass in about four seconds, within the same range
-            // available through the speed keys.
-            return Math.max(1, Math.min(120, Math.round(size / 4)));
+            // User's rule: ~6 fps per doubling of frames, 3..30 fps.
+            return Math.max(3, Math.min(30, Math.round(Math.log2(Math.max(1, size)) * 6)));
         }
 
         function stopPlay() {
