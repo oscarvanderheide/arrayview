@@ -191,8 +191,25 @@ def parse_mosaic_sel(value, n):
 
 
 def mosaic_range(shape, dim, sel=None):
-    """Slices of *dim* a mosaic shows: all of them, or ``sel`` (start, stop, step)."""
-    return range(*sel) if sel else range(int(shape[dim]))
+    """Slices of *dim* a mosaic shows: all of them, or ``sel`` (start, stop, step).
+
+    A whole dim taken every few slices (start < step, stop = the end) always
+    has ceil(n / step) tiles, whichever slice it starts on, so the grid keeps
+    its shape while scrolling cycles the start; a last slot past the end is
+    left blank (see mosaic_tile_in_bounds).
+    """
+    if not sel:
+        return range(int(shape[dim]))
+    start, stop, step = sel
+    n = int(shape[dim])
+    if step > 1 and start < step and stop == n:
+        return range(start, start + -(-n // step) * step, step)
+    return range(*sel)
+
+
+def mosaic_tile_in_bounds(shape, tile):
+    """False for a blank padding tile (an index past the end of its dim)."""
+    return all(0 <= int(v) < int(s) for v, s in zip(tile, shape))
 
 
 def mosaic_tile_indices(shape, dim_z, dim_z2, idx, z_sel=None, z2_sel=None):
@@ -1083,13 +1100,18 @@ def _build_mosaic_rgba(
     # cover the entire file.
     frames_raw = []
     for i, tile in enumerate(tiles):
-        frames_raw.append(extract_slice(session, dim_x, dim_y, tile))
+        inside = mosaic_tile_in_bounds(session.shape, tile)
+        frames_raw.append(extract_slice(session, dim_x, dim_y, tile) if inside else None)
         if progress is not None:
             progress(i + 1, n)
-    frames = [apply_complex_mode(f, complex_mode) for f in frames_raw]
+    frames = [None if f is None else apply_complex_mode(f, complex_mode) for f in frames_raw]
     if log_scale:
-        frames = [np.log1p(np.abs(f)).astype(np.float32) for f in frames]
-    all_data = np.stack(frames)
+        frames = [None if f is None else np.log1p(np.abs(f)).astype(np.float32) for f in frames]
+    # Blank padding tiles: NaN, so they draw as empty grid and stay out of the window.
+    shown = [f for f in frames if f is not None]
+    blank = np.full(shown[0].shape, np.nan, dtype=np.float32)
+    all_data = np.stack([blank if f is None else f for f in frames])
+    window_data = np.stack(shown) if len(shown) < len(frames) else all_data
 
     if vmin_override is not None and vmax_override is not None:
         vmin, vmax = float(vmin_override), float(vmax_override)
@@ -1098,7 +1120,7 @@ def _build_mosaic_rgba(
     else:
         # One call partitions once for both ends; two calls sorted the whole
         # stack twice (~0.14 s of a 240-slice mosaic step).
-        vmin, vmax = (float(v) for v in np.percentile(all_data, [1, 99]))
+        vmin, vmax = (float(v) for v in np.percentile(window_data, [1, 99]))
     if window_out is not None:
         window_out.append((vmin, vmax))
 
@@ -1250,6 +1272,7 @@ __all__ = [
     "render_mosaic",
     "parse_mosaic_sel",
     "mosaic_range",
+    "mosaic_tile_in_bounds",
     # Preload
     "_run_preload",
 ]

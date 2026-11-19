@@ -12,6 +12,7 @@ from arrayview._render import (
     LUTS,
     _build_mosaic_grid,
     mosaic_tile_indices,
+    mosaic_tile_in_bounds,
     parse_mosaic_sel,
     _compute_vmin_vmax,
     _ensure_lut,
@@ -207,6 +208,7 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
                         for tile in mosaic_tile_indices(
                             session.shape, dim_z, dim_z2, idx_tuple, zs, z2s
                         )
+                        if mosaic_tile_in_bounds(session.shape, tile)
                     ]
                     frames = [apply_complex_mode(frame, complex_mode) for frame in frames_raw]
                     if log_scale:

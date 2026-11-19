@@ -9,6 +9,7 @@ from arrayview._render import (
     _composite_overlay_mask,
     mosaic_grid_cols,
     mosaic_tile_indices,
+    mosaic_tile_in_bounds,
     _extract_overlay_mask,
     _overlay_is_label_map,
 )
@@ -162,7 +163,7 @@ def _composite_mosaic_overlays(
                 tuple(frame_idx),
                 expected_shape=tile_shape,
                 base_shape=base_shape,
-            )
+            ) if mosaic_tile_in_bounds(base_shape, frame_idx) else None
             frames.append(
                 ov_raw if ov_raw is not None else np.zeros(tile_shape, dtype=np.float32)
             )
