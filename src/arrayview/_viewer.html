@@ -234,7 +234,7 @@
             font-variant-numeric: tabular-nums;
             opacity: 0; transition: opacity 0.14s ease;
         }
-        #info.playback-hud-visible .playback-controls { opacity: 1; }
+        #info.playback-hud-visible .playback-controls { opacity: 1; transition-duration: 0.1s; }
         #info .playback-hint {
             color: inherit; transition: color 0.14s ease;
         }
@@ -27257,9 +27257,13 @@
         let _playbackPressedTimer = null;
 
         function _reconcilePlaybackHud() {
+        // Speed readout shows only briefly after < / >, not for the whole playback.
+        let _playbackSpeedShown = false;
+        let _playbackSpeedTimer = null;
+        const PLAYBACK_SPEED_SHOW_MS = 1200;
             const info = document.getElementById('info');
             if (!info) return;
-            info.classList.toggle('playback-hud-visible', isPlaying);
+            info.classList.toggle('playback-hud-visible', isPlaying && _playbackSpeedShown);
             const value = info.querySelector('.playback-fps');
             if (value) value.textContent = `${playFps} fps`;
             info.querySelectorAll('.playback-hint').forEach(hint => {
@@ -27281,6 +27285,8 @@
             _playbackPressedStep = null;
             setStatus('');
             renderInfo();
+            clearTimeout(_playbackSpeedTimer);
+            _playbackSpeedShown = false;
         }
 
         function playNext() {
@@ -32067,6 +32073,12 @@
                     }, 350);
                     _reconcilePlaybackHud();
                     return;
+                    _playbackSpeedShown = true;
+                    clearTimeout(_playbackSpeedTimer);
+                    _playbackSpeedTimer = setTimeout(() => {
+                        _playbackSpeedShown = false;
+                        _reconcilePlaybackHud();
+                    }, PLAYBACK_SPEED_SHOW_MS);
                 },
             },
             'ui.adjustBracket': {
