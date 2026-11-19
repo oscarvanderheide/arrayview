@@ -1372,10 +1372,14 @@
         /* Caption: fixed height so the menu never changes size as it follows the pointer. */
         #roi-toolbar .roi-menu-cap {
             display: none; position: absolute; right: 0; bottom: calc(100% + 6px);
-            width: 190px; padding: 6px 8px; pointer-events: none;
+            width: 210px; padding: 10px 12px; pointer-events: none;
             background: var(--surface); border: 1px solid var(--border-subtle); border-radius: 8px;
-            color: var(--text); font-size: 10px; line-height: 13px;
+            color: var(--text); font-size: 10px; line-height: 15px;
         }
+        #roi-toolbar .roi-menu-cap p { margin: 0; }
+        #roi-toolbar .roi-menu-cap p + p { margin-top: 9px; }
+        #roi-toolbar .roi-menu-cap .k { display: inline-block; width: 8em; white-space: nowrap; color: var(--muted); }
+        #roi-toolbar .roi-menu-cap .dim { color: var(--muted); }
         #roi-toolbar .roi-menu-cap.show { display: block; }
         #roi-toolbar button.roi-menu-pref {
             display: block; width: 0; min-width: 100%; height: auto; padding: 6px 8px; margin: 0;
@@ -21004,7 +21008,10 @@
             circle: ['Circle', 'drag across the region'],
             rect: ['Rectangle', 'drag from corner to corner'],
             freehand: ['Freehand', 'draw the outline around the region'],
-            floodfill: ['Flood fill', 'Selects the connected area around a pixel whose values are close to it. Hold, then drag up/down to change sensitivity, left/right to change smoothness. A 3D region may take a moment to catch up.'],
+            // floodfill caption is HTML (constant, no user text): spaced paragraphs.
+            floodfill: ['Flood fill', '<p>Selects the connected area around a pixel whose values are close to it.</p>'
+                + '<p>Hold, then drag:<br><span class="k">up / down</span>sensitivity<br><span class="k">left / right</span>smoothness</p>'
+                + '<p class="dim">A 3D region may take a moment to catch up.</p>'],
         };
         let _roiMenuDownAt = 0;
         let _roiMenuPos = null;
@@ -21102,7 +21109,10 @@
             if (!cap) return;
             // Only flood fill needs an explanation.
             const btn = shape === 'floodfill' ? bar.querySelector('[data-shape="floodfill"]') : null;
-            if (btn) cap.textContent = btn.disabled ? (btn.title.split(' · ')[1] || 'not available here') : _ROI_MENU_CAPTIONS.floodfill[1];
+            if (btn) {
+                if (btn.disabled) cap.textContent = btn.title.split(' · ')[1] || 'not available here';
+                else cap.innerHTML = _ROI_MENU_CAPTIONS.floodfill[1];
+            }
             cap.classList.toggle('show', !!btn);
         }
 
