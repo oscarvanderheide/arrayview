@@ -255,8 +255,10 @@ def register_analysis_routes(app, get_session_or_404) -> None:
         complex_mode: int = 0,
         scope_dim: int | None = None,
         preview: bool = False,
+        smooth: int = 0,
         session=Depends(get_session_or_404),
     ):
+        smooth = max(0, min(_FLOODFILL_SMOOTH_MAX, int(smooth)))
         if session.rgb_axis is not None:
             return {"error": "not supported for RGB sessions"}
         idx_tuple = tuple(int(v) for v in indices.split(","))
@@ -272,40 +274,20 @@ def register_analysis_routes(app, get_session_or_404) -> None:
                 complex_mode,
                 scope_dim,
                 preview=preview,
+                smooth=smooth,
             )
         raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
         data = apply_complex_mode(raw, complex_mode)
         h, w = data.shape
         if not (0 <= py < h and 0 <= px < w):
             return {"error": "seed out of bounds"}
-        seed_val = float(data[py, px])
-        try:
-            from scipy.ndimage import label
-
-            abs_tol = tolerance * (
-                np.nanmax(np.abs(data)) - np.nanmin(np.abs(data)) + 1e-10
-            )
-            mask = np.abs(data - seed_val) <= abs_tol
-            labeled, _n_features = label(mask)
-            seed_label = labeled[py, px]
-            if seed_label == 0:
-                return {"error": "seed outside tolerance region"}
-            component = labeled == seed_label
-        except ImportError:
-            abs_tol = tolerance * (
-                np.nanmax(np.abs(data)) - np.nanmin(np.abs(data)) + 1e-10
-            )
-            component = np.zeros((h, w), dtype=bool)
-            stack = [(py, px)]
-            component[py, px] = True
-            while stack:
-                cy, cx = stack.pop()
-                for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                    ny, nx = cy + dy, cx + dx
-                    if 0 <= ny < h and 0 <= nx < w and not component[ny, nx]:
-                        if abs(float(data[ny, nx]) - seed_val) <= abs_tol:
-                            component[ny, nx] = True
-                            stack.append((ny, nx))
+        abs_tol = tolerance * (
+            np.nanmax(np.abs(data)) - np.nanmin(np.abs(data)) + 1e-10
+        )
+        component, seed_val = _grow_floodfill(data[None], (0, py, px), abs_tol, smooth)
+        component = component[0]
+        if not component.any():
+            return {"error": "seed outside tolerance region"}
         roi = data[component]
         finite = roi[np.isfinite(roi)]
         ys, xs = np.where(component)
@@ -327,6 +309,7 @@ def register_analysis_routes(app, get_session_or_404) -> None:
             "n": int(finite.size),
             "seed_value": _safe_float(seed_val),
             "tolerance": tolerance,
+            "smooth": smooth,
             "abs_tol": _safe_float(abs_tol),
             "bbox": bbox,
             "mask_b64": _encode_mask_b64(component, bbox),
@@ -655,8 +638,62 @@ _FLOODFILL_VOLUME_CACHE: dict = {}
 _FLOODFILL_VOLUME_LOCK = threading.Lock()
 
 
+# Edge smoothing for the magic wand, level 0 (off) .. _FLOODFILL_SMOOTH_MAX.
+# Level s: compare a copy of the image blurred in-plane with sigma s/2, then
+# blur the grown mask in-plane with sigma s, keep > 0.5, keep the seed's piece
+# and fill in-plane holes. The viewer repeats this exactly for its instant
+# single-slice preview (_roiLocalFloodFill) — keep the two in step.
+_FLOODFILL_SMOOTH_MAX = 5
+
+
+def _blur_planes(values: np.ndarray, sigma: float) -> np.ndarray:
+    """Gaussian blur of each [y, x] plane of a [z, y, x] array; NaNs ignored."""
+    from scipy.ndimage import gaussian_filter
+
+    sig = (0, sigma, sigma)
+    valid = np.isfinite(values)
+    if valid.all():
+        return gaussian_filter(values.astype(np.float32), sig, mode="reflect", truncate=4.0)
+    num = gaussian_filter(np.where(valid, values, 0).astype(np.float32), sig, mode="reflect", truncate=4.0)
+    den = gaussian_filter(valid.astype(np.float32), sig, mode="reflect", truncate=4.0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        out = num / den
+    out[~valid] = np.nan
+    return out
+
+
+def _grow_floodfill(volume, seed, abs_tol, smooth=0, blur_cache=None):
+    """Region of [z, y, x] *volume* joined to *seed*; returns (mask, seed value)."""
+    if smooth > 0:
+        try:
+            from scipy.ndimage import binary_fill_holes
+        except ImportError:
+            smooth = 0
+    if smooth <= 0:
+        seed_val = float(volume[seed])
+        mask = np.abs(volume - seed_val) <= abs_tol
+        return _connected_component(mask, seed), seed_val
+    img = blur_cache.get(smooth) if blur_cache is not None else None
+    if img is None:
+        img = _blur_planes(volume, smooth / 2.0)
+        if blur_cache is not None:
+            blur_cache[smooth] = img
+    seed_val = float(img[seed])
+    grown = _connected_component(np.abs(img - seed_val) <= abs_tol, seed)
+    rounded = _blur_planes(grown.astype(np.float32), float(smooth)) > 0.5
+    rounded = _connected_component(rounded, seed)
+    if not rounded.any():
+        return grown, seed_val
+    for z in np.flatnonzero(rounded.any(axis=(1, 2))):
+        rounded[z] = binary_fill_holes(rounded[z])
+    return rounded, seed_val
+
+
 def _scoped_floodfill_volume(session, dim_x, dim_y, indices, complex_mode, scope_dim):
-    """Return ``(volume, abs_range)`` for a scoped grow; volume is [scope, y, x]."""
+    """Return ``(volume, abs_range, blur_cache)`` for a scoped grow.
+
+    volume is [scope, y, x]; blur_cache holds smoothed copies by level.
+    """
     other = tuple(v for i, v in enumerate(indices) if i not in (dim_x, dim_y, scope_dim))
     key = (
         session.sid,
@@ -671,7 +708,7 @@ def _scoped_floodfill_volume(session, dim_x, dim_y, indices, complex_mode, scope
     with _FLOODFILL_VOLUME_LOCK:
         hit = _FLOODFILL_VOLUME_CACHE.get("entry")
         if hit is not None and hit[0] == key:
-            return hit[1], hit[2]
+            return hit[1], hit[2], hit[3]
     planes = []
     for value in range(session.shape[scope_dim]):
         idx = list(indices)
@@ -683,8 +720,9 @@ def _scoped_floodfill_volume(session, dim_x, dim_y, indices, complex_mode, scope
     mag = np.abs(volume)
     abs_range = float(np.nanmax(mag) - np.nanmin(mag) + 1e-10)
     with _FLOODFILL_VOLUME_LOCK:
-        _FLOODFILL_VOLUME_CACHE["entry"] = (key, volume, abs_range)
-    return volume, abs_range
+        blur_cache: dict = {}
+        _FLOODFILL_VOLUME_CACHE["entry"] = (key, volume, abs_range, blur_cache)
+    return volume, abs_range, blur_cache
 
 
 def _scoped_floodfill_response(
@@ -698,6 +736,7 @@ def _scoped_floodfill_response(
     complex_mode: int,
     scope_dim: int,
     preview: bool = False,
+    smooth: int = 0,
 ) -> dict:
     shape = session.shape
     if len(indices) < len(shape):
@@ -711,7 +750,7 @@ def _scoped_floodfill_response(
         return {"error": "scope_dim must be exactly one non-display dimension"}
 
     values = list(range(shape[scope_dim]))
-    volume, abs_range = _scoped_floodfill_volume(
+    volume, abs_range, blur_cache = _scoped_floodfill_volume(
         session, dim_x, dim_y, indices, complex_mode, scope_dim
     )
     depth, h, w = volume.shape
@@ -719,10 +758,10 @@ def _scoped_floodfill_response(
         return {"error": "seed out of bounds"}
 
     seed_z = values.index(indices[scope_dim])
-    seed_val = float(volume[seed_z, py, px])
     abs_tol = tolerance * abs_range
-    mask = np.abs(volume - seed_val) <= abs_tol
-    component = _connected_component(mask, (seed_z, py, px))
+    component, seed_val = _grow_floodfill(
+        volume, (seed_z, py, px), abs_tol, smooth, blur_cache
+    )
     roi_values = volume[component]
     finite = roi_values[np.isfinite(roi_values)]
 
@@ -744,6 +783,7 @@ def _scoped_floodfill_response(
             "n": int(finite.size),
             "seed_value": _safe_float(seed_val),
             "tolerance": tolerance,
+            "smooth": smooth,
             "abs_tol": _safe_float(abs_tol),
             "bbox": bbox,
             "mask_b64": _encode_mask_b64(plane, bbox),
@@ -810,6 +850,7 @@ def _scoped_floodfill_response(
         "n": int(finite.size),
         "seed_value": _safe_float(seed_val),
         "tolerance": tolerance,
+        "smooth": smooth,
         "abs_tol": _safe_float(abs_tol),
         "bbox": current_slice["bbox"] if current_slice else {"x0": 0, "y0": 0, "x1": 0, "y1": 0},
         "mask_b64": current_slice["mask_b64"] if current_slice else "",

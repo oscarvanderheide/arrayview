@@ -7054,6 +7054,7 @@
         let _roiVisible = true;
         let _roiNextId = 1;
         let _floodFillTolerance = 0.1;
+        let _floodFillSmooth = 0; // magic-wand edge smoothing, 0 (off) .. 5; drag sideways while holding
         let _selectedRoiIdx = -1;
         let _roiEditDrag = null; // {idx, mode, startX, startY, snapshot}
         let _roiTooltipEdit = null; // {idx, original}
@@ -20412,7 +20413,7 @@
             }
             _roiShape = shape;
             _roiSessionShape = shape;
-            const modeHint = shape === 'floodfill' ? 'hold seed · drag up/down sensitivity · release to create' : 'drag to draw';
+            const modeHint = shape === 'floodfill' ? 'hold seed · drag up/down sensitivity · left/right edge smoothing · release to create' : 'drag to draw';
             if (rectRoiMode) showStatus(`ROI mode: ${shape} · ${modeHint}`);
             if (shape !== 'floodfill') _updateRoiFloodfillSensitivityIndicator(_floodFillTolerance, false);
             if (rectRoiMode) renderInfo();
@@ -20751,7 +20752,7 @@
                 const blocked = !rectRoiMode && _roiUnavailableReason({ checkCanvases: true });
                 _roiAutoOff = !rectRoiMode;
                 showStatus(rectRoiMode
-                    ? `ROI: ${_roiShapeLabel(_roiShape).toLowerCase()} · ${_roiShape === 'floodfill' ? 'hold seed · drag up/down sensitivity' : 'drag to draw'} · values under the cursor`
+                    ? `ROI: ${_roiShapeLabel(_roiShape).toLowerCase()} · ${_roiShape === 'floodfill' ? 'hold seed · drag up/down sensitivity · left/right smoothing' : 'drag to draw'} · values under the cursor`
                     : `hover info: on${blocked ? ` · no ROIs ${blocked}` : ''}`);
             } else {
                 if (rectRoiMode) _deactivateRoiInteraction({ quiet: true });
@@ -20783,7 +20784,7 @@
                 compareCanvases.forEach(cv => { if (cv) cv.style.cursor = 'crosshair'; });
                 _scheduleRoiStatsRefresh();
             }
-            if (!quiet) showStatus(`ROI mode: ${_roiShape} · ${_roiShape === 'floodfill' ? 'hold seed · drag up/down sensitivity' : 'drag to draw'}`);
+            if (!quiet) showStatus(`ROI mode: ${_roiShape} · ${_roiShape === 'floodfill' ? 'hold seed · drag up/down sensitivity · left/right smoothing' : 'drag to draw'}`);
             renderEggs();
             renderIsland();
             _reconcileUI();
@@ -20992,7 +20993,7 @@
             circle: ['Circle', 'drag across the region'],
             rect: ['Rectangle', 'drag from corner to corner'],
             freehand: ['Freehand', 'draw the outline around the region'],
-            floodfill: ['Flood fill', 'hold on a pixel; drag up to take in more, down for less'],
+            floodfill: ['Flood fill', 'hold on a pixel; drag up to take in more, down for less, right for smoother edges'],
         };
         let _roiMenuDownAt = 0;
         let _roiMenuPos = null;
@@ -21005,7 +21006,7 @@
             circle: 'Circle · drag on the image',
             rect: 'Rectangle · drag on the image',
             freehand: 'Freehand · draw the outline on the image',
-            floodfill: 'Flood fill · hold on the image, drag up to take in more, down for less',
+            floodfill: 'Flood fill · hold on the image, drag up to take in more, down for less, right for smoother edges',
         };
 
         // One line per pane (side by side) or per map (qMRI) under each ROI.
@@ -28836,6 +28837,7 @@
             });
             if (Number.isInteger(opts.scopeDim) && opts.scopeDim >= 0) params.set('scope_dim', String(opts.scopeDim));
             if (opts.preview) params.set('preview', 'true');
+            if (opts.smooth > 0) params.set('smooth', String(opts.smooth));
             const resp = await proxyFetch(`/roi_floodfill/${sid}?${params}`);
             if (!resp.ok) throw new Error('request failed');
             const data = await resp.json();
@@ -28857,6 +28859,7 @@
                 seed_px: opts.px,
                 seed_py: opts.py,
                 tolerance: opts.tolerance,
+                smooth: opts.smooth || 0,
                 replaceIdx: Number.isInteger(opts.replaceIdx) ? opts.replaceIdx : -1,
                 mvDimX: opts.view ? opts.view.dimX : opts.mvDimX,
                 mvDimY: opts.view ? opts.view.dimY : opts.mvDimY,
@@ -28866,7 +28869,7 @@
             if (data._localMask) {
                 // Instant preview: the mask is already bytes; seed the decode
                 // cache under a key no real base64 mask can equal.
-                roi.mask_b64 = roi._maskB64Key = `local:${data.n}:${data.tolerance}`;
+                roi.mask_b64 = roi._maskB64Key = `local:${data.n}:${data.tolerance}:${data.smooth || 0}`;
                 roi._maskBytes = data._localMask;
             }
             return roi;
@@ -28994,6 +28997,64 @@
         }
         // 4-connected fill on the raw plane, in data space (flip undone), in the
         // shape of a server reply so the same preview/draw path takes it.
+        // Gaussian blur of a w*h plane, matching scipy gaussian_filter
+        // (mode 'reflect', truncate 4, y then x, float32 between passes).
+        // NaNs are left out of the average and stay NaN.
+        function _roiBlurPlane(src, w, h, sigma) {
+            const rad = Math.floor(4 * sigma + 0.5);
+            const k = new Float64Array(2 * rad + 1);
+            let ksum = 0;
+            for (let i = -rad; i <= rad; i++) { k[i + rad] = Math.exp(-0.5 * i * i / (sigma * sigma)); ksum += k[i + rad]; }
+            for (let i = 0; i < k.length; i++) k[i] /= ksum;
+            const refl = (i, n) => {
+                const p = 2 * n;
+                i = ((i % p) + p) % p;
+                return i < n ? i : p - 1 - i;
+            };
+            let hasNaN = false;
+            for (let i = 0; i < src.length; i++) if (!Number.isFinite(src[i])) { hasNaN = true; break; }
+            const pass2 = (vals) => {
+                const tmp = new Float32Array(w * h), out = new Float32Array(w * h);
+                for (let x = 0; x < w; x++) for (let y = 0; y < h; y++) {
+                    let acc = 0;
+                    for (let j = -rad; j <= rad; j++) acc += k[j + rad] * vals[refl(y + j, h) * w + x];
+                    tmp[y * w + x] = acc;
+                }
+                for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+                    let acc = 0;
+                    for (let j = -rad; j <= rad; j++) acc += k[j + rad] * tmp[y * w + refl(x + j, w)];
+                    out[y * w + x] = acc;
+                }
+                return out;
+            };
+            if (!hasNaN) return pass2(src);
+            const num = new Float32Array(w * h), valid = new Float32Array(w * h);
+            for (let i = 0; i < src.length; i++) if (Number.isFinite(src[i])) { num[i] = src[i]; valid[i] = 1; }
+            const bn = pass2(num), bv = pass2(valid);
+            for (let i = 0; i < src.length; i++) bn[i] = valid[i] ? bn[i] / bv[i] : NaN;
+            return bn;
+        }
+        // 4-connected piece of `ok(p)` pixels holding `seedIdx`, as a 0/1 mask.
+        function _roiGrowMask(w, h, seedIdx, ok) {
+            const mask = new Uint8Array(w * h);
+            if (!ok(seedIdx)) return mask;
+            const stack = new Int32Array(w * h);
+            let top = 0;
+            mask[seedIdx] = 1;
+            stack[top++] = seedIdx;
+            while (top) {
+                const p = stack[--top];
+                const x = p % w;
+                if (x > 0 && !mask[p - 1] && ok(p - 1)) { mask[p - 1] = 1; stack[top++] = p - 1; }
+                if (x < w - 1 && !mask[p + 1] && ok(p + 1)) { mask[p + 1] = 1; stack[top++] = p + 1; }
+                if (p >= w && !mask[p - w] && ok(p - w)) { mask[p - w] = 1; stack[top++] = p - w; }
+                if (p < w * (h - 1) && !mask[p + w] && ok(p + w)) { mask[p + w] = 1; stack[top++] = p + w; }
+            }
+            return mask;
+        }
+        // 4-connected fill on the raw plane, in data space (flip undone), in the
+        // shape of a server reply so the same preview/draw path takes it.
+        // Smoothing repeats the server's _grow_floodfill step for step.
         function _roiLocalFloodFill(raw, drag) {
             const { data, w, h } = raw;
             const dimXRef = drag.view ? drag.view.dimX : dim_x;
@@ -29003,39 +29064,66 @@
             const sx = fx ? w - 1 - drag.px : drag.px;
             const sy = fy ? h - 1 - drag.py : drag.py;
             if (sx < 0 || sy < 0 || sx >= w || sy >= h) return null;
-            const seed = data[sy * w + sx];
+            const smooth = drag.smooth || 0;
+            let cmp = data;
+            if (smooth > 0) {
+                raw.blurred = raw.blurred || {};
+                cmp = raw.blurred[smooth] || (raw.blurred[smooth] = _roiBlurPlane(data, w, h, smooth / 2));
+            }
+            const seedIdx = sy * w + sx;
+            const seed = cmp[seedIdx];
             if (!Number.isFinite(seed)) return null;
             // A 3D grow measures the spread over the whole volume: reuse the
             // scale the server reported, so both agree on the window.
             const absRange = Number.isFinite(drag.absRange) ? drag.absRange : raw.absRange + 1e-10;
             const tol = drag.tolerance * absRange;
-            const mask = new Uint8Array(w * h);
-            const stack = new Int32Array(w * h);
-            let top = 0, n = 0, sum = 0, sum2 = 0, mn = Infinity, mx = -Infinity;
-            let x0 = sx, x1 = sx, y0 = sy, y1 = sy;
-            mask[sy * w + sx] = 1;
-            stack[top++] = sy * w + sx;
-            while (top) {
-                const p = stack[--top];
+            let mask = _roiGrowMask(w, h, seedIdx, p => Math.abs(cmp[p] - seed) <= tol);
+            if (smooth > 0) {
+                const soft = _roiBlurPlane(Float32Array.from(mask), w, h, smooth);
+                const rounded = _roiGrowMask(w, h, seedIdx, p => soft[p] > 0.5);
+                if (rounded[seedIdx]) {
+                    // Fill holes: background not reachable from the border joins.
+                    const outside = new Uint8Array(w * h);
+                    const stack = new Int32Array(w * h);
+                    let top = 0;
+                    const push = p => { if (!rounded[p] && !outside[p]) { outside[p] = 1; stack[top++] = p; } };
+                    for (let x = 0; x < w; x++) { push(x); push((h - 1) * w + x); }
+                    for (let y = 0; y < h; y++) { push(y * w); push(y * w + w - 1); }
+                    while (top) {
+                        const p = stack[--top];
+                        const x = p % w;
+                        if (x > 0) push(p - 1);
+                        if (x < w - 1) push(p + 1);
+                        if (p >= w) push(p - w);
+                        if (p < w * (h - 1)) push(p + w);
+                    }
+                    for (let i = 0; i < mask.length; i++) rounded[i] = outside[i] ? 0 : 1;
+                    mask = rounded;
+                }
+            }
+            let n = 0, sum = 0, sum2 = 0, mn = Infinity, mx = -Infinity;
+            let x0 = w, x1 = -1, y0 = h, y1 = -1;
+            for (let p = 0; p < mask.length; p++) {
+                if (!mask[p]) continue;
+                const x = p % w, y = (p - x) / w;
+                if (x < x0) x0 = x;
+                if (x > x1) x1 = x;
+                if (y < y0) y0 = y;
+                if (y > y1) y1 = y;
                 const v = data[p];
+                if (!Number.isFinite(v)) continue;
                 n++; sum += v; sum2 += v * v;
                 if (v < mn) mn = v;
                 if (v > mx) mx = v;
-                const x = p % w, y = (p - x) / w;
-                if (x < x0) x0 = x; else if (x > x1) x1 = x;
-                if (y < y0) y0 = y; else if (y > y1) y1 = y;
-                if (x > 0 && !mask[p - 1] && Math.abs(data[p - 1] - seed) <= tol) { mask[p - 1] = 1; stack[top++] = p - 1; }
-                if (x < w - 1 && !mask[p + 1] && Math.abs(data[p + 1] - seed) <= tol) { mask[p + 1] = 1; stack[top++] = p + 1; }
-                if (y > 0 && !mask[p - w] && Math.abs(data[p - w] - seed) <= tol) { mask[p - w] = 1; stack[top++] = p - w; }
-                if (y < h - 1 && !mask[p + w] && Math.abs(data[p + w] - seed) <= tol) { mask[p + w] = 1; stack[top++] = p + w; }
             }
+            if (x1 < 0) return null;
             const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
             const crop = new Uint8Array(bw * bh);
             for (let y = 0; y < bh; y++) crop.set(mask.subarray((y0 + y) * w + x0, (y0 + y) * w + x0 + bw), y * bw);
-            const mean = sum / n;
+            const mean = n ? sum / n : NaN;
             return {
                 n, min: mn, max: mx, mean, std: Math.sqrt(Math.max(0, sum2 / n - mean * mean)),
-                seed_value: seed, tolerance: drag.tolerance, abs_tol: tol,
+                seed_value: seed, tolerance: drag.tolerance, smooth, abs_tol: tol,
                 bbox: { x0, y0, x1, y1 }, _localMask: crop,
             };
         }
@@ -29052,11 +29140,15 @@
             if (!data) return false;
             drag.local = data;
             if (drag.seedValue === undefined) drag.seedValue = data.seed_value;
-            _redrawRoiOverlays(_floodFillPreviewRoi(data, { px: drag.px, py: drag.py, tolerance: drag.tolerance, replaceIdx: drag.editIdx, view: drag.view }));
+            _redrawRoiOverlays(_floodFillPreviewRoi(data, { px: drag.px, py: drag.py, tolerance: drag.tolerance, smooth: drag.smooth, replaceIdx: drag.editIdx, view: drag.view }));
             _reconcileFloodfillSensitivityHud();
             return true;
         }
 
+        // The server's last reply matches the sensitivity and smoothing on screen.
+        function _roiFloodFillDataCurrent(drag) {
+            return Math.abs((drag.dataTolerance ?? -1) - drag.tolerance) < 0.0001 && (drag.dataSmooth || 0) === (drag.smooth || 0);
+        }
         function _requestFloodFillPreview(drag) {
             if (!drag) return;
             _roiFloodFillLocalPreview(drag);
@@ -29068,27 +29160,29 @@
             drag.queued = false;
             const token = ++drag.token;
             const tolerance = drag.tolerance;
+            const smooth = drag.smooth || 0;
             // A 3D grow sends only the shown plane while dragging; the full
             // region (megabytes) is fetched once, on release.
             const lite = _roiFloodFillIs3d(drag) && !drag.released;
-            _fetchFloodFill(drag.px, drag.py, tolerance, { view: drag.view, scopeDim: drag.scopeDim, preview: lite })
+            _fetchFloodFill(drag.px, drag.py, tolerance, { view: drag.view, scopeDim: drag.scopeDim, preview: lite, smooth })
                 .then(data => {
                     if (!_roiFloodFillDrag || _roiFloodFillDrag !== drag || token !== drag.token) return;
                     drag.data = data;
                     drag.dataLite = !!data.preview;
                     drag.dataTolerance = tolerance;
+                    drag.dataSmooth = smooth;
                     if (Number.isFinite(data.abs_tol) && tolerance > 0) drag.absRange = data.abs_tol / tolerance;
                     if (Number.isFinite(data.seed_value)) drag.seedValue = data.seed_value;
                     // Paint the server's region only while it is still the
                     // sensitivity on screen; an older one would undo the
                     // instant preview the user is already looking at.
-                    if (!drag.local || Math.abs(drag.tolerance - tolerance) < 0.0001) {
-                        _redrawRoiOverlays(_floodFillPreviewRoi(data, { px: drag.px, py: drag.py, tolerance, replaceIdx: drag.editIdx, view: drag.view }));
+                    if (!drag.local || _roiFloodFillDataCurrent(drag)) {
+                        _redrawRoiOverlays(_floodFillPreviewRoi(data, { px: drag.px, py: drag.py, tolerance, smooth, replaceIdx: drag.editIdx, view: drag.view }));
                     }
                     _reconcileFloodfillSensitivityHud();
-                    if (drag.released && !drag.dataLite && Math.abs(drag.tolerance - tolerance) < 0.0001) {
+                    if (drag.released && !drag.dataLite && _roiFloodFillDataCurrent(drag)) {
                         _roiFloodFillDrag = null;
-                        _commitFloodFillData(data, { editIdx: drag.editIdx, px: drag.px, py: drag.py, tolerance, view: drag.view });
+                        _commitFloodFillData(data, { editIdx: drag.editIdx, px: drag.px, py: drag.py, tolerance, smooth, view: drag.view });
                     }
                 })
                 .catch(err => {
@@ -29098,7 +29192,7 @@
                 .finally(() => {
                     if (!drag) return;
                     drag.pending = false;
-                    if (_roiFloodFillDrag === drag && (drag.queued || (drag.released && (drag.dataLite || Math.abs((drag.dataTolerance ?? -1) - drag.tolerance) >= 0.0001)))) {
+                    if (_roiFloodFillDrag === drag && (drag.queued || (drag.released && (drag.dataLite || !_roiFloodFillDataCurrent(drag))))) {
                         _requestFloodFillPreview(drag);
                     }
                 });
@@ -29212,6 +29306,9 @@
                 clientY: e.clientY,
                 baseTolerance: _floodFillTolerance,
                 tolerance: _floodFillTolerance,
+                startX: e.clientX,
+                baseSmooth: _floodFillSmooth,
+                smooth: _floodFillSmooth,
                 data: null,
                 token: 0,
                 pending: false,
@@ -29224,11 +29321,21 @@
             const onMove = me => {
                 if (_roiFloodFillDrag !== drag) return;
                 const next = _floodFillToleranceFromDrag(drag.baseTolerance, me.clientY - drag.startY);
+                // Sideways: edge smoothing, one step per 40 px.
+                const nextSmooth = Math.max(0, Math.min(5, drag.baseSmooth + Math.round((me.clientX - drag.startX) / 40)));
                 // Relative step: at a few percent an absolute 0.5 % step was
                 // a large jump in what joins.
-                if (Math.abs(Math.log(next / drag.tolerance)) < 0.01) return;
-                drag.tolerance = next;
-                _floodFillTolerance = next;
+                const tolChanged = Math.abs(Math.log(next / drag.tolerance)) >= 0.01;
+                if (!tolChanged && nextSmooth === drag.smooth) return;
+                if (nextSmooth !== drag.smooth) {
+                    drag.smooth = nextSmooth;
+                    _floodFillSmooth = nextSmooth;
+                    showToast(nextSmooth ? `edge smoothing ${nextSmooth} of 5` : 'edge smoothing off');
+                }
+                if (tolChanged) {
+                    drag.tolerance = next;
+                    _floodFillTolerance = next;
+                }
                 _updateRoiFloodfillSensitivityIndicator(drag.tolerance, true);
                 _requestFloodFillPreview(drag);
             };
@@ -29238,9 +29345,9 @@
                 if (_roiFloodFillDrag !== drag) return;
                 drag.released = true;
                 _updateRoiFloodfillSensitivityIndicator(drag.tolerance, false);
-                if (drag.data && !drag.dataLite && Math.abs((drag.dataTolerance ?? -1) - drag.tolerance) < 0.0001) {
+                if (drag.data && !drag.dataLite && _roiFloodFillDataCurrent(drag)) {
                     _roiFloodFillDrag = null;
-                    _commitFloodFillData(drag.data, { editIdx: drag.editIdx, px: drag.px, py: drag.py, tolerance: drag.tolerance, view: drag.view });
+                    _commitFloodFillData(drag.data, { editIdx: drag.editIdx, px: drag.px, py: drag.py, tolerance: drag.tolerance, smooth: drag.smooth, view: drag.view });
                 } else {
                     if (!drag.pending) _requestFloodFillPreview(drag);
                     showStatus('flood fill: finishing preview...');
