@@ -5618,7 +5618,7 @@
         .mosaic-box .spread-picker__title { text-align: center; white-space: normal; }
         .mosaic-box__row { display: flex; align-items: center; justify-content: center; gap: 10px; }
         .mosaic-box__field {
-            min-width: 9ch; padding: 3px 7px; border-radius: 5px;
+            width: 13ch; overflow: hidden; padding: 3px 7px; border-radius: 5px;
             font-size: 13px; line-height: 1.2; color: var(--active-dim);
             background: rgba(0, 0, 0, 0.35); border: 1px solid color-mix(in srgb, var(--active-dim) 55%, transparent);
             white-space: pre;
@@ -5629,9 +5629,8 @@
         .mosaic-box__field.is-fresh span { border-radius: 2px; background: color-mix(in srgb, var(--active-dim) 28%, transparent); }
         .mosaic-box__field.is-bad { color: var(--playing-dim); border-color: color-mix(in srgb, var(--playing-dim) 60%, transparent); }
         @keyframes mosaic-box-caret { 50% { opacity: 0; } }
-        .mosaic-box__count { font-size: 10px; white-space: nowrap; color: color-mix(in srgb, var(--text) 62%, transparent); }
+        .mosaic-box__count { width: 9ch; font-size: 10px; white-space: nowrap; color: color-mix(in srgb, var(--text) 62%, transparent); }
         .mosaic-box__count b { font-weight: inherit; color: var(--text); }
-        .mosaic-box__err { color: var(--playing-dim); }
         @media (prefers-reduced-motion: reduce) {
             .spread-picker, .spread-picker.is-visible, .spread-picker__glow { transition: none; }
             .spread-picker.is-visible .spread-picker__frame,
@@ -31176,7 +31175,7 @@
         const _MOSAIC_BIG = 32;
         const _zPick = {
             down: false, downAt: 0, timer: null, active: false, stay: false,
-            dim: -1, buf: '', fresh: true,
+            dim: -1, buf: '', fresh: true, bad: false,
             el: null, shown: false, covered: [],
         };
 
@@ -31257,6 +31256,7 @@
             p.dim = d;
             p.buf = _zPickStart(d);
             p.fresh = true;
+            p.bad = false;
             p.stay = stay;
             p.active = true;
             _reconcileZPicker();
@@ -31266,7 +31266,8 @@
             const p = _zPick;
             if (!p.active) return;
             const r = commit ? _zPickParse(p.dim, p.buf) : null;
-            if (r && r.err) return;
+            // Half-typed or wrong: stay up and mark the line; the next key clears it.
+            if (r && r.err) { p.bad = true; _reconcileZPicker(); return; }
             p.active = false;
             _reconcileZPicker();
             if (r) _mosaicApplyPick(p.dim, r.pick);
@@ -31298,10 +31299,10 @@
                 const f = el.querySelector('[data-z-field]');
                 f.innerHTML = `<span>${p.buf}</span>`;
                 f.classList.toggle('is-fresh', p.fresh && p.buf !== '');
-                f.classList.toggle('is-bad', !!r.err);
+                f.classList.toggle('is-bad', p.bad);
                 const n = r.err ? 0 : _zPickTiles(d, r.pick);
-                el.querySelector('[data-z-count]').innerHTML = r.err ? `<span class="mosaic-box__err">${r.err}</span>`
-                    : `<b>${n}</b> tile${n === 1 ? '' : 's'}`;
+                // While typing, a line that is not a pick yet shows a dash, not an error.
+                el.querySelector('[data-z-count]').innerHTML = r.err ? '–' : `<b>${n}</b> tile${n === 1 ? '' : 's'}`;
             }
             if (p.active && !el.classList.contains('is-visible')) void el.offsetWidth;
             el.classList.toggle('is-visible', p.active);
@@ -31325,10 +31326,11 @@
                 if (!p.down && !e.repeat) _zPickClose(true);
                 return true;
             }
+            p.bad = false;
             if (/^[0-9:]$/.test(k)) {
                 if (p.fresh) p.buf = '';
                 p.fresh = false;
-                if (k !== ':' || (p.buf.match(/:/g) || []).length < 2) p.buf += k;
+                if (p.buf.length < 12 && (k !== ':' || (p.buf.match(/:/g) || []).length < 2)) p.buf += k;
                 _reconcileZPicker();
                 return true;
             }
