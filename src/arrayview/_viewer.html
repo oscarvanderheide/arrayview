@@ -31235,7 +31235,8 @@
         }
 
         // The typed line as a pick for dim d: {pick} (null: every slice), or {err}.
-        // A lone stride covers the whole dim, lined up on the slice you are on.
+        // A lone stride covers the whole dim from slice 1 (scroll then moves
+        // every tile on by one).
         function _zPickParse(d, buf) {
             const N = Number(shape[d]);
             const t = buf.trim();
@@ -31247,8 +31248,7 @@
                 const step = num(parts[0], 1);
                 if (!(step >= 1)) return { err: 'stride is 1 or more' };
                 if (step === 1) return { pick: null };
-                const cur = Number(indices[d]) || 0;
-                return { pick: { start: cur % step, stop: N, step } };
+                return { pick: { start: 0, stop: N, step } };
             }
             const three = parts.length === 3;
             const a = num(parts[0], 1), c = three ? num(parts[1], 1) : 1;
@@ -31393,14 +31393,19 @@
             saveState();
         }
 
-        // Scroll over a thinned mosaic: the shown slices move by one. A whole
-        // dim taken every few slices cycles which ones; a range slides along
-        // the dim and stops at either end. The tile you are on stays put.
+        // Scroll over a thinned mosaic: every tile moves on by one slice. A whole
+        // dim taken every few slices goes +1, +2 … up to the slice before the
+        // next tile's and stops there (no wrap back); a range slides along the
+        // dim and stops at either end. The tile you are on stays put.
         function _mosaicShift(d, delta) {
             const s = _mosaicSel(d);
             if (!s.thinned) return false;
             let pick;
-            if (s.whole) pick = { start: ((s.start + delta) % s.step + s.step) % s.step, stop: s.N, step: s.step };
+            if (s.whole) {
+                const start = s.start + delta;
+                if (start < 0 || start >= s.step) return true;
+                pick = { start, stop: s.N, step: s.step };
+            }
             else if (s.start + delta >= 0 && s.stop + delta <= s.N) pick = { start: s.start + delta, stop: s.stop + delta, step: s.step };
             else return true;
             const k = s.near(Number(indices[d]) || 0);
