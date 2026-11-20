@@ -5616,7 +5616,15 @@
         /* z slice box: a short label, the typed line and its tile count. */
         .mosaic-box { padding: 6px 10px 8px; gap: 5px; align-items: stretch; }
         .mosaic-box .spread-picker__title { text-align: center; white-space: normal; }
-        .mosaic-box__row { display: flex; align-items: center; justify-content: center; gap: 10px; }
+        .mosaic-box__row { display: flex; align-items: center; justify-content: center; gap: 7px; }
+        /* Up / down triangles: ↑ ↓ (or a click) change the stride. */
+        .mosaic-box__bump { display: flex; flex-direction: column; gap: 3px; cursor: pointer; }
+        .mosaic-box__bump i { width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; opacity: 0.55; transition: opacity 0.1s ease; }
+        .mosaic-box__bump i:first-child { border-bottom: 5px solid var(--text); }
+        .mosaic-box__bump i:last-child { border-top: 5px solid var(--text); }
+        .mosaic-box__bump i:hover { opacity: 1; }
+        /* The tile count follows from the line. */
+        .mosaic-box__to { font-size: 11px; color: color-mix(in srgb, var(--text) 50%, transparent); }
         .mosaic-box__field {
             width: 13ch; overflow: hidden; padding: 3px 7px; border-radius: 5px;
             font-size: 13px; line-height: 1.2; color: var(--active-dim);
@@ -5629,7 +5637,7 @@
         .mosaic-box__field.is-fresh span { border-radius: 2px; background: color-mix(in srgb, var(--active-dim) 28%, transparent); }
         .mosaic-box__field.is-bad { color: var(--playing-dim); border-color: color-mix(in srgb, var(--playing-dim) 60%, transparent); }
         @keyframes mosaic-box-caret { 50% { opacity: 0; } }
-        .mosaic-box__count { width: 9ch; font-size: 10px; white-space: nowrap; color: color-mix(in srgb, var(--text) 62%, transparent); }
+        .mosaic-box__count { width: 8ch; font-size: 10px; white-space: nowrap; color: color-mix(in srgb, var(--text) 62%, transparent); }
         .mosaic-box__count b { font-weight: inherit; color: var(--text); }
         @media (prefers-reduced-motion: reduce) {
             .spread-picker, .spread-picker.is-visible, .spread-picker__glow { transition: none; }
@@ -31280,6 +31288,19 @@
                 : Math.floor((pick.stop - 1 - pick.start) / pick.step) + 1;
         }
 
+        // Bump the stride by dir: a lone number, or the middle of start:stride:stop.
+        function _zPickBump(dir) {
+            const p = _zPick;
+            const parts = p.buf.split(':');
+            const i = parts.length === 3 ? 1 : parts.length === 1 ? 0 : -1;
+            if (i < 0) return;
+            parts[i] = String(Math.max(1, (parseInt(parts[i], 10) || 1) + dir));
+            p.buf = parts.join(':');
+            p.fresh = false;
+            p.bad = false;
+            _reconcileZPicker();
+        }
+
         function _reconcileZPicker() {
             const p = _zPick;
             if (!p.el) {
@@ -31287,7 +31308,17 @@
                 const el = document.createElement('div');
                 el.className = 'spread-picker mosaic-box';
                 el.innerHTML = '<div class="spread-picker__title" data-z-title></div>'
-                    + '<div class="mosaic-box__row"><span class="mosaic-box__field" data-z-field></span><span class="mosaic-box__count" data-z-count></span></div>';
+                    + '<div class="mosaic-box__row">'
+                    + '<span class="mosaic-box__bump"><i data-z-bump="1"></i><i data-z-bump="-1"></i></span>'
+                    + '<span class="mosaic-box__field" data-z-field></span>'
+                    + '<span class="mosaic-box__to">→</span>'
+                    + '<span class="mosaic-box__count" data-z-count></span></div>';
+                el.addEventListener('mousedown', (e) => {
+                    const b = e.target.closest('[data-z-bump]');
+                    if (!b || !p.active) return;
+                    e.preventDefault();
+                    _zPickBump(Number(b.dataset.zBump));
+                });
                 document.body.appendChild(el);
                 p.el = el;
             }
@@ -31295,7 +31326,7 @@
             if (p.active) {
                 const d = p.dim;
                 const r = _zPickParse(d, p.buf);
-                el.querySelector('[data-z-title]').textContent = 'stride or start:stride:stop';
+                el.querySelector('[data-z-title]').textContent = 'Enter stride (or start:stride:stop)';
                 const f = el.querySelector('[data-z-field]');
                 f.innerHTML = `<span>${p.buf}</span>`;
                 f.classList.toggle('is-fresh', p.fresh && p.buf !== '');
@@ -31340,19 +31371,7 @@
                 _reconcileZPicker();
                 return true;
             }
-            if (k === 'ArrowUp' || k === 'ArrowDown') {
-                // Bump the stride: a lone number, or the middle of start:stride:stop.
-                const parts = p.buf.split(':');
-                const i = parts.length === 3 ? 1 : parts.length === 1 ? 0 : -1;
-                if (i >= 0) {
-                    const v = Math.max(1, (parseInt(parts[i], 10) || 1) + (k === 'ArrowUp' ? 1 : -1));
-                    parts[i] = String(v);
-                    p.buf = parts.join(':');
-                    p.fresh = false;
-                    _reconcileZPicker();
-                }
-                return true;
-            }
+            if (k === 'ArrowUp' || k === 'ArrowDown') { _zPickBump(k === 'ArrowUp' ? 1 : -1); return true; }
             if (['Shift', 'CapsLock', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(k)) return true;
             // Anything else: leave things as they were and let the key through.
             _zPickClose(false);
