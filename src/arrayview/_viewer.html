@@ -5864,11 +5864,15 @@
             paint-order: stroke fill;
             text-shadow: 0 1px 2px rgba(0,0,0,0.4);
         }
-        #bc-hud .bc-hud-arrow {
-            display: inline-flex; align-items: center; justify-content: center;
-            height: 1em; line-height: 1; font-size: 1.7em; opacity: 0.85;
-            position: relative; top: 0.08em;
+        /* Drawn, not a font glyph: \u2195/\u2194 sit at different heights
+           per font, so the two hints never lined up. Same box for both,
+           centred on the cap height of the label. */
+        #bc-hud .bc-hud-arrow { display: block; overflow: visible; }
+        #bc-hud .bc-hud-arrow path {
+            fill: none; stroke-linecap: round; stroke-linejoin: round;
         }
+        #bc-hud .bc-hud-arrow .bc-hud-arrow-under { stroke: rgba(0,0,0,0.6); stroke-width: 3.2; }
+        #bc-hud .bc-hud-arrow .bc-hud-arrow-over { stroke: currentColor; stroke-width: 1.4; }
     </style>
 </head>
 <body class="__BODY_CLASS__">
@@ -28455,9 +28459,16 @@
             const baseY = BC_TRI_MT + BC_TRI_H;
             // One bidirectional arrow per axis reads as "this word, both
             // ways" without the busier double-chevron-on-both-sides look.
+            const arrow = (d) =>
+                '<svg class="bc-hud-arrow" width="12" height="12" viewBox="0 0 12 12">' +
+                    `<path class="bc-hud-arrow-under" d="${d}"/>` +
+                    `<path class="bc-hud-arrow-over" d="${d}"/>` +
+                '</svg>';
+            const ARROW_UD = 'M6 1.5V10.5M3.5 4L6 1.5L8.5 4M3.5 8L6 10.5L8.5 8';
+            const ARROW_LR = 'M1.5 6H10.5M4 3.5L1.5 6L4 8.5M8 3.5L10.5 6L8 8.5';
             _bcHudEl.innerHTML =
                 '<span class="bc-hud-hint bc-hud-hint-window">' +
-                    'WINDOW<span class="bc-hud-arrow">\u2195</span>' +
+                    'WINDOW' + arrow(ARROW_UD) +
                 '</span>' +
                 '<span class="bc-hud-icon">' +
                     `<svg width="${BC_TRI_VBW}" height="${BC_TRI_VBH}" viewBox="0 0 ${BC_TRI_VBW} ${BC_TRI_VBH}">` +
@@ -28468,7 +28479,7 @@
                     '</svg>' +
                 '</span>' +
                 '<span class="bc-hud-hint bc-hud-hint-level">' +
-                    'LEVEL<span class="bc-hud-arrow">\u2194</span>' +
+                    'LEVEL' + arrow(ARROW_LR) +
                 '</span>';
             document.body.appendChild(_bcHudEl);
             return _bcHudEl;
