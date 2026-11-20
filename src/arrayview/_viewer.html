@@ -5613,10 +5613,9 @@
             animation-delay: calc(var(--sp-i, 0) * 24ms);
         }
         @keyframes spread-picker-cut { from { gap: 0; } }
-        /* z slice box: a typed line, its tile count, and a strip of every slice. */
-        .mosaic-box { padding: 7px 10px 5px; gap: 5px; width: 330px; align-items: stretch; }
+        /* z slice box: a short label, the typed line and its tile count. */
+        .mosaic-box { padding: 6px 10px 8px; gap: 5px; align-items: stretch; }
         .mosaic-box .spread-picker__title { text-align: center; white-space: normal; }
-        .mosaic-box .spread-picker__title b { font-weight: inherit; color: var(--active-dim); }
         .mosaic-box__row { display: flex; align-items: center; justify-content: center; gap: 10px; }
         .mosaic-box__field {
             min-width: 9ch; padding: 3px 7px; border-radius: 5px;
@@ -5633,7 +5632,6 @@
         .mosaic-box__count { font-size: 10px; white-space: nowrap; color: color-mix(in srgb, var(--text) 62%, transparent); }
         .mosaic-box__count b { font-weight: inherit; color: var(--text); }
         .mosaic-box__err { color: var(--playing-dim); }
-        .mosaic-box__strip { display: block; width: 100%; height: 12px; }
         @media (prefers-reduced-motion: reduce) {
             .spread-picker, .spread-picker.is-visible, .spread-picker__glow { transition: none; }
             .spread-picker.is-visible .spread-picker__frame,
@@ -31170,8 +31168,8 @@
         // ── z slice box ──────────────────────────────────────────────
         // Which slices a mosaic tiles, typed in one line: a stride (4 = every
         // 4th slice) or start:stride:stop / start:stop, Julia style, numbered
-        // from 1 as in the dim bar, stop included. A strip under the line shows
-        // the slices it picks, one tick per slice. z on a dim of more than 32
+        // from 1 as in the dim bar, stop included, with the tile count it gives.
+        // z on a dim of more than 32
         // slices opens it at once; holding z opens it on any dim. It stays up
         // until Enter / z takes it or Esc cancels. A tap of z otherwise turns
         // the mosaic on / off as before.
@@ -31281,30 +31279,6 @@
                 : Math.floor((pick.stop - 1 - pick.start) / pick.step) + 1;
         }
 
-        // One tick per slice, the picked ones in the active colour.
-        function _zPickDrawStrip(cv, d, pick) {
-            const N = Number(shape[d]);
-            const dpr = window.devicePixelRatio || 1;
-            const w = cv.clientWidth, h = cv.clientHeight;
-            if (!w || !h) return;
-            cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
-            const ctx = cv.getContext('2d');
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            ctx.clearRect(0, 0, w, h);
-            const cs = getComputedStyle(cv);
-            const on = cs.getPropertyValue('--active-dim').trim() || '#ebcb8b';
-            const off = cs.getPropertyValue('--text').trim() || '#d8d8d8';
-            const cell = w / N, gap = cell >= 3 ? 1 : 0;
-            const has = i => !pick || (i >= pick.start && i < pick.stop && (i - pick.start) % pick.step === 0);
-            for (let i = 0; i < N; i++) {
-                const lit = has(i);
-                ctx.globalAlpha = lit ? 1 : 0.18;
-                ctx.fillStyle = lit ? on : off;
-                ctx.fillRect(i * cell, 0, Math.max(0.6, cell - gap), h);
-            }
-            ctx.globalAlpha = 1;
-        }
-
         function _reconcileZPicker() {
             const p = _zPick;
             if (!p.el) {
@@ -31312,24 +31286,22 @@
                 const el = document.createElement('div');
                 el.className = 'spread-picker mosaic-box';
                 el.innerHTML = '<div class="spread-picker__title" data-z-title></div>'
-                    + '<div class="mosaic-box__row"><span class="mosaic-box__field" data-z-field></span><span class="mosaic-box__count" data-z-count></span></div>'
-                    + '<canvas class="mosaic-box__strip" data-z-strip></canvas>'
-                    + '<div class="spread-picker__hint"><b>Enter</b> tiles · <b>↑ ↓</b> change the stride · <b>Esc</b> cancels</div>';
+                    + '<div class="mosaic-box__row"><span class="mosaic-box__field" data-z-field></span><span class="mosaic-box__count" data-z-count></span></div>';
                 document.body.appendChild(el);
                 p.el = el;
             }
             const el = p.el;
             if (p.active) {
-                const d = p.dim, N = Number(shape[d]);
+                const d = p.dim;
                 const r = _zPickParse(d, p.buf);
-                el.querySelector('[data-z-title]').innerHTML = 'Type a stride: <b>4</b> tiles every 4th slice<br>or start:stride:stop, like <b>10:2:60</b>';
+                el.querySelector('[data-z-title]').textContent = 'stride or start:stride:stop';
                 const f = el.querySelector('[data-z-field]');
                 f.innerHTML = `<span>${p.buf}</span>`;
                 f.classList.toggle('is-fresh', p.fresh && p.buf !== '');
                 f.classList.toggle('is-bad', !!r.err);
                 const n = r.err ? 0 : _zPickTiles(d, r.pick);
                 el.querySelector('[data-z-count]').innerHTML = r.err ? `<span class="mosaic-box__err">${r.err}</span>`
-                    : `<b>${n}</b> of ${N} slices`;
+                    : `<b>${n}</b> tile${n === 1 ? '' : 's'}`;
             }
             if (p.active && !el.classList.contains('is-visible')) void el.offsetWidth;
             el.classList.toggle('is-visible', p.active);
@@ -31339,10 +31311,6 @@
                 if (p.active) _spreadPickPlace(el);
                 p.covered.forEach(a => { a.onfinish = () => a.cancel(); a.reverse(); });
                 p.covered = p.active ? _fadeChromeUnder(el) : [];
-            }
-            if (p.active) {
-                const r = _zPickParse(p.dim, p.buf);
-                _zPickDrawStrip(el.querySelector('[data-z-strip]'), p.dim, r.err ? { start: 0, stop: 0, step: 1 } : r.pick);
             }
         }
 
