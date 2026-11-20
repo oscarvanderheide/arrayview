@@ -5639,6 +5639,11 @@
         @keyframes mosaic-box-caret { 50% { opacity: 0; } }
         .mosaic-box__count { width: 8ch; font-size: 10px; white-space: nowrap; color: color-mix(in srgb, var(--text) 62%, transparent); }
         .mosaic-box__count b { font-weight: inherit; color: var(--text); }
+        /* : box: what can be typed, the form dim on the left, its meaning in white. */
+        .mosaic-box__help { display: grid; grid-template-columns: auto auto; column-gap: 12px; row-gap: 1px; padding: 0 5px; font-size: 9.5px; line-height: 1.35; color: #fff; }
+        .mosaic-box__help > b { grid-column: 1 / -1; font-weight: inherit; font-size: 10px; margin-bottom: 2px; }
+        .mosaic-box [hidden] { display: none; }
+        .mosaic-box__help i { font-style: normal; color: color-mix(in srgb, var(--text) 55%, transparent); }
         @media (prefers-reduced-motion: reduce) {
             .spread-picker, .spread-picker.is-visible, .spread-picker__glow { transition: none; }
             .spread-picker.is-visible .spread-picker__frame,
@@ -31177,12 +31182,16 @@
         // 4th slice) or start:stride:stop / start:stop, Julia style, numbered
         // from 1 as in the dim bar, stop included, with the tile count it gives.
         // z on a dim of more than 32
-        // slices opens it at once; holding z opens it on any dim. It stays up
+        // slices opens it at once as a question (a stride, or z again for all
+        // of them); holding z opens it on any dim. It stays up
         // until Enter / z takes it or Esc cancels. A tap of z otherwise turns
         // the mosaic on / off as before.
+        // `:` opens the same box for any pick: a stride or range tiles a
+        // mosaic, slices with commas (12,40,77) go side by side.
         const _MOSAIC_BIG = 32;
         const _zPick = {
             down: false, downAt: 0, timer: null, active: false, stay: false,
+            mode: 'z',                  // 'z' hold z · 'ask' z on a big dim · 'any' the : box
             dim: -1, buf: '', fresh: true, bad: false,
             el: null, shown: false, covered: [],
         };
@@ -31205,7 +31214,7 @@
             p.downAt = performance.now();
             clearTimeout(p.timer);
             p.timer = null;
-            if (dim_z < 0 && _mosaicSel(d).n > _MOSAIC_BIG) _zPickOpen(d, true);
+            if (dim_z < 0 && _mosaicSel(d).n > _MOSAIC_BIG) _zPickOpen(d, true, 'ask');
             else p.timer = setTimeout(() => { p.timer = null; if (p.down) _zPickOpen(d, false); }, _SPREAD_HOLD_MS);
             return true;
         }
@@ -31237,10 +31246,19 @@
         // The typed line as a pick for dim d: {pick} (null: every slice), or {err}.
         // A lone stride covers the whole dim from slice 1 (scroll then moves
         // every tile on by one).
-        function _zPickParse(d, buf) {
+        function _zPickParse(d, buf, mode = _zPick.mode) {
             const N = Number(shape[d]);
             const t = buf.trim();
             if (!t) return { pick: null };
+            if (mode === 'any' && t.includes(',')) {
+                // Slices by number, side by side (one alone: go to it).
+                if (t.includes(':')) return { err: 'a range or a list, not both' };
+                const v = t.split(',').map(x => x.trim()).filter(Boolean).map(Number);
+                if (!v.length || !v.every(x => Number.isInteger(x) && x >= 1 && x <= N)) return { err: `slices are 1–${N}` };
+                const list = [...new Set(v.map(x => x - 1))];
+                if (list.length > SPREAD_MAX) return { err: `at most ${SPREAD_MAX}`, many: true };
+                return { list };
+            }
             const parts = t.split(':');
             if (parts.length > 3) return { err: 'at most two :' };
             const num = (v, dflt) => v === '' ? dflt : parseInt(v, 10);
@@ -31259,10 +31277,11 @@
             return { pick: { start: a - 1, stop: b, step: c } };
         }
 
-        function _zPickOpen(d, stay) {
+        function _zPickOpen(d, stay, mode = 'z') {
             const p = _zPick;
             p.dim = d;
-            p.buf = _zPickStart(d);
+            p.mode = mode;
+            p.buf = mode === 'any' ? '' : _zPickStart(d);
             p.fresh = true;
             p.bad = false;
             p.stay = stay;
@@ -31278,7 +31297,69 @@
             if (r && r.err) { p.bad = true; _reconcileZPicker(); return; }
             p.active = false;
             _reconcileZPicker();
-            if (r) _mosaicApplyPick(p.dim, r.pick);
+            if (!r) return;
+            if (r.list) { _sliceListApply(p.dim, r.list); return; }
+            if (detachedDimMode) {
+                // A range from side by side: back to one image, then the mosaic.
+                const d = p.dim;
+                _afterGlide(() => { _spreadToggle(); _afterGlide(() => _mosaicApplyPick(d, r.pick)); });
+                return;
+            }
+            _mosaicApplyPick(p.dim, r.pick);
+        }
+
+        // `:` opens the box on the dim side by side, else the dim z would tile.
+        function _zPickOpenAny() {
+            const d = detachedDimMode ? detachedDim : _zPickDim();
+            if (d < 0 || Number(shape[d]) < 2) { showToast(': needs a dim of slices to pick from'); return; }
+            if (_spreadPick.active) _spreadPickClose(false);
+            _zPickOpen(d, true, 'any');
+        }
+
+        // Slices typed with commas (0-based): those panes side by side; one
+        // alone shows just that slice.
+        let _spreadNextIdx = null;  // indices the next side by side starts with
+        function _sliceListApply(d, list) {
+            _spreadNextIdx = null;
+            if (detachedDimMode && detachedDim === d) {
+                if (list.length === 1) {
+                    detachedDimIdx[0] = list[0];
+                    _afterGlide(_spreadToggle);
+                    return;
+                }
+                if (list.length === detachedDimIdx.length) {
+                    detachedDimIdx = [...list];
+                    indices[d] = list[0];
+                    updateCompareTitles();
+                    renderInfo();
+                    compareRender();
+                    _cqRefreshRowPins();
+                    _cmvRefreshRows();
+                    saveState();
+                    return;
+                }
+                _spreadNextIdx = [...list];
+                _afterGlide(() => _spreadSetCount(list.length));
+                return;
+            }
+            if (detachedDimMode) { showToast('leave side by side first (s)'); return; }
+            const go = () => {
+                if (list.length === 1) {
+                    indices[d] = list[0];
+                    renderInfo(); updateView(); triggerPreload(); saveState();
+                    return;
+                }
+                _spreadNextIdx = [...list];
+                spreadCount = list.length;
+                _splitToggle(d);
+            };
+            if (dim_z >= 0) {
+                // Off the mosaic first, onto the first slice asked for.
+                indices[d] = list[0];
+                _afterGlide(() => { _mosaicToggle(); _afterGlide(list.length === 1 ? () => {} : go); });
+                return;
+            }
+            _afterGlide(go);
         }
 
         function _zPickTiles(d, pick) {
@@ -31291,6 +31372,7 @@
         // Bump the stride by dir: a lone number, or the middle of start:stride:stop.
         function _zPickBump(dir) {
             const p = _zPick;
+            if (p.buf.includes(',')) return;
             const parts = p.buf.split(':');
             const i = parts.length === 3 ? 1 : parts.length === 1 ? 0 : -1;
             if (i < 0) return;
@@ -31308,11 +31390,13 @@
                 const el = document.createElement('div');
                 el.className = 'spread-picker mosaic-box';
                 el.innerHTML = '<div class="spread-picker__title" data-z-title></div>'
+                    + '<div class="mosaic-box__help" data-z-help></div>'
                     + '<div class="mosaic-box__row">'
                     + '<span class="mosaic-box__bump"><i data-z-bump="1"></i><i data-z-bump="-1"></i></span>'
                     + '<span class="mosaic-box__field" data-z-field></span>'
                     + '<span class="mosaic-box__to">→</span>'
-                    + '<span class="mosaic-box__count" data-z-count></span></div>';
+                    + '<span class="mosaic-box__count" data-z-count></span></div>'
+                    + '<div class="spread-picker__hint" data-z-hint></div>';
                 el.addEventListener('mousedown', (e) => {
                     const b = e.target.closest('[data-z-bump]');
                     if (!b || !p.active) return;
@@ -31326,14 +31410,35 @@
             if (p.active) {
                 const d = p.dim;
                 const r = _zPickParse(d, p.buf);
-                el.querySelector('[data-z-title]').textContent = 'Enter stride (or start:stride:stop)';
+                const N = Number(shape[d]);
+                const title = el.querySelector('[data-z-title]'), help = el.querySelector('[data-z-help]'), hint = el.querySelector('[data-z-hint]');
+                title.hidden = p.mode === 'any';
+                help.hidden = p.mode !== 'any';
+                hint.hidden = p.mode !== 'ask';
+                if (p.mode === 'any') {
+                    help.innerHTML = '<b>Show slices</b>'
+                        + '<i>N</i><span>stride over all slices</span>'
+                        + '<i>start:stride:stop</i><span>stride over a range</span>'
+                        + '<i>a, b, c</i><span>selected slices, side by side</span>';
+                } else if (p.mode === 'ask') {
+                    title.textContent = `${N} tiles would be too small to read, try a stride`;
+                    hint.innerHTML = '<b>Enter</b> tiles every Nth slice · <b>↑ ↓</b> change it'
+                        + `<br><b>z</b> shows all ${N} anyway · <b>Esc</b> cancels · hold <b>z</b> later to choose again`;
+                } else {
+                    title.textContent = 'Enter stride (or start:stride:stop)';
+                }
                 const f = el.querySelector('[data-z-field]');
-                f.innerHTML = `<span>${p.buf}</span>`;
+                // The field keeps its width: a long line shows its end, where you type.
+                const shown = p.buf.length > 12 ? '…' + p.buf.slice(-11) : p.buf;
+                f.innerHTML = `<span>${shown}</span>`;
                 f.classList.toggle('is-fresh', p.fresh && p.buf !== '');
                 f.classList.toggle('is-bad', p.bad);
-                const n = r.err ? 0 : _zPickTiles(d, r.pick);
                 // While typing, a line that is not a pick yet shows a dash, not an error.
-                el.querySelector('[data-z-count]').innerHTML = r.err ? '–' : `<b>${n}</b> tile${n === 1 ? '' : 's'}`;
+                let count = '–';
+                if (r.list) count = r.list.length === 1 ? '<b>1</b> slice' : `<b>${r.list.length}</b> panes`;
+                else if (r.many) count = `max <b>${SPREAD_MAX}</b>`;
+                else if (!r.err) { const n = _zPickTiles(d, r.pick); count = `<b>${n}</b> tile${n === 1 ? '' : 's'}`; }
+                el.querySelector('[data-z-count]').innerHTML = count;
             }
             if (p.active && !el.classList.contains('is-visible')) void el.offsetWidth;
             el.classList.toggle('is-visible', p.active);
@@ -31352,16 +31457,21 @@
             if (e.ctrlKey || e.metaKey || e.altKey) return false;
             if (k === 'Escape') { _zPickClose(false); return true; }
             if (k === 'Enter') { _zPickClose(true); return true; }
-            if (k === 'z' || k === 'Z') {
-                // z again takes the line; while held it only repeats.
-                if (!p.down && !e.repeat) _zPickClose(true);
+            if ((k === 'z' || k === 'Z') && p.mode !== 'any') {
+                // z again takes the line (on a big dim: every slice); while held it only repeats.
+                if (!p.down && !e.repeat) {
+                    if (p.mode === 'ask') { p.active = false; _reconcileZPicker(); _mosaicApplyPick(p.dim, null); }
+                    else _zPickClose(true);
+                }
                 return true;
             }
             p.bad = false;
-            if (/^[0-9:]$/.test(k)) {
+            const keys = p.mode === 'any' ? /^[0-9:, ]$/ : /^[0-9:]$/;
+            if (keys.test(k)) {
                 if (p.fresh) p.buf = '';
                 p.fresh = false;
-                if (p.buf.length < 12 && (k !== ':' || (p.buf.match(/:/g) || []).length < 2)) p.buf += k;
+                const max = p.mode === 'any' ? 40 : 12;
+                if (p.buf.length < max && (k !== ':' || (p.buf.match(/:/g) || []).length < 2)) p.buf += k;
                 _reconcileZPicker();
                 return true;
             }
@@ -33990,6 +34100,11 @@
                 when: [],
                 run: (ctx, e) => _afterGlide(_splitToggle),
             },
+            'slice.pickSlices': {
+                title: 'Pick slices: a stride, a range or a list',
+                when: [],
+                run: (ctx, e) => { if (e) e.preventDefault(); _afterGlide(_zPickOpenAny); },
+            },
             'spread.toggle': {
                 title: 'Side by side on/off',
                 when: [],
@@ -34111,6 +34226,7 @@
             { key: 'o', mod: true, command: 'overlay.openPicker' },
             { key: 'O', mod: true, command: 'overlay.openPicker' },
             { key: 'z', command: 'slice.toggleMosaic' },
+            { key: ':', command: 'slice.pickSlices' },
             { key: ' ', command: 'playback.toggle' },
             { key: 'Spacebar', command: 'playback.toggle' },
             { key: 'T', command: 'theme.cycle' },
@@ -34235,12 +34351,13 @@
                             { key: 'x / y', action: 'Change viewing dimension', hint: 'choose which axes map to horizontal and vertical' },
                             { key: 'o', action: 'Next view — axial → coronal → sagittal', hint: 'each view keeps its own r / t rotation and flip · NIfTI views are named; for other arrays Shift+A names the current view and sets the voxel size · Enter closes the view label' },
                             { key: 'Shift+D', action: 'Toggle dimbar max indices' },
-                            { key: 'z', action: 'Mosaic — tile all slices in a grid', hint: 'on a dim of more than 32 slices it first asks which slices to tile' },
+                            { key: 'z', action: 'Mosaic — tile all slices in a grid', hint: 'on a dim of more than 32 slices it first offers a stride · z again tiles them all anyway' },
                             { key: 'z (hold)', action: 'Mosaic — choose which slices to tile', hint: 'type a stride (4 = every 4th slice) or start:stride:stop as in Julia (10:2:60, stop included) · ↑ ↓ change the stride · Enter tiles · then scrolling slides the tiled slices by one' },
                             { key: 'Shift+→ / Shift+↓', action: 'Mosaic — lay the active dim out across / down', hint: 'one dim each way makes a grid of both · again on that dim takes it out · z leaves' },
                             { key: 'Shift+← / Shift+↑', action: 'Mosaic — take the across / down dim out' },
-                            { key: 's', action: 'Side by side — show the active dim in several panes', hint: 'opens a strip of pane counts at the bottom of the picture: a digit or a click takes one, arrows + Enter too · works on any non-spatial dim, including the dim of several loaded arrays · in side by side, s goes back to one image' },
-                            { key: 's (hold)', action: 'Side by side — another number of panes', hint: 'in side by side, holding s brings the strip back · arrows, a digit or the mouse choose · release s to apply · Esc cancels' },
+                            { key: ':', action: 'Pick slices — a stride, a range or a list', hint: 'one number: every Nth slice · start:stride:stop: a range, stop included · both tile a mosaic · slices with commas (12,40,77) go side by side · Enter applies, Esc cancels' },
+                            { key: 's', action: 'Side by side — split the active dim into two panes', hint: 'the slice you are on and the next one · works on any non-spatial dim, including the dim of several loaded arrays · in side by side, s goes back to one image' },
+                            { key: 's (hold)', action: 'Side by side — choose the number of panes', hint: 'holding s brings up a strip of pane counts · arrows, a digit or the mouse choose · release s to apply · Esc cancels' },
                             { key: '[ / ]', action: 'Side by side — move the pane under the mouse', hint: 'j/k move them all · two panes compare: X opens the difference · neighbours of three or more page along' },
                             { key: '1–9 Enter', action: 'Jump to a specific slice number' },
                         ]
@@ -37781,7 +37898,12 @@
             detachedDimMode = true;
             detachedDim = dim;
             const cur = Math.max(0, Math.min(shape[dim] - 1, Number(indices[dim]) || 0));
-            if (n === 2) {
+            const asked = _spreadNextIdx;
+            _spreadNextIdx = null;
+            if (asked && asked.length === n) {
+                detachedDimIdx = [...asked];
+                indices[dim] = asked[0];
+            } else if (n === 2) {
                 // The current index and the next one (wrapping at the end).
                 detachedDimIdx = [cur, (cur + 1) % shape[dim]];
             } else {
@@ -44300,12 +44422,10 @@
             ? 'split, ortho and qMRI together are not available'
             : 'ortho and qMRI together are not available with several arrays';
 
-        // `:` — side by side on the active dim, with the pane count used last.
+        // s — side by side on the active dim in two panes, or back to one image.
         function _spreadToggle() {
-            if (detachedDimMode) {
-                spreadCount = detachedDimIdx.length;
-                _spreadLeaving();
-            }
+            if (detachedDimMode) _spreadLeaving();
+            else spreadCount = 2;
             _splitToggle(_spreadDim());
         }
 
@@ -44388,9 +44508,9 @@
             p.downAt = performance.now();
             clearTimeout(p.timer);
             p.timer = null;
-            // One image: the strip is there at once. Side by side: tap or hold, decided on release.
-            if (!detachedDimMode) _spreadPickOpen();
-            else p.timer = setTimeout(() => { p.timer = null; if (p.down) _spreadPickOpen(); }, _SPREAD_HOLD_MS);
+            // Tap or hold, decided on release: a tap splits in two (or goes back
+            // to one image), a hold brings up the strip.
+            p.timer = setTimeout(() => { p.timer = null; if (p.down) _spreadPickOpen(); }, _SPREAD_HOLD_MS);
             return true;
         }
 
@@ -44614,6 +44734,9 @@
         // Indices for `n` panes: neighbours stay neighbours; panes moved by hand
         // keep theirs, the last goes or one more follows the last.
         function _spreadResizeIndices(n) {
+            const asked = _spreadNextIdx;
+            _spreadNextIdx = null;
+            if (asked && asked.length === n) return [...asked];
             const old = detachedDimIdx;
             if (_spreadIsRun()) return _spreadNeighbours(detachedDim, old[0], n);
             if (n <= old.length) return old.slice(0, n);
