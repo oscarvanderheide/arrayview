@@ -3,6 +3,7 @@
 import itertools
 import threading
 import time
+from pathlib import Path
 
 import numpy as np
 
@@ -76,6 +77,23 @@ _ICEFIRE_STOPS = [
 _BLACK_AT_VMIN = ("lipari", "navia")
 
 
+def _register_qmri_colormaps(colormaps, LinearSegmentedColormap):
+    """Register lipari and navia (Fuderer et al. 2024) with matplotlib.
+
+    The colour tables are bundled (copied from qmricolors) rather than imported
+    from that package, which also loads VisPy and fails on headless machines
+    without OpenGL libraries.
+    """
+    data_dir = Path(__file__).parent / "_qmri_colormaps"
+    for name in ("lipari", "navia"):
+        if name in colormaps:
+            continue
+        colors = np.loadtxt(data_dir / f"{name}.csv", ndmin=2)
+        colormaps.register(
+            LinearSegmentedColormap.from_list(name, colors.tolist(), N=256), name=name
+        )
+
+
 def _init_luts():
     """Build colourmap LUTs on first use (defers matplotlib + qmricolors import)."""
     global _mpl_colormaps
@@ -84,9 +102,10 @@ def _init_luts():
     with _luts_lock:
         if LUTS:
             return  # double-checked locking
-        import qmricolors as _qc  # noqa: F401 — registers lipari, navia
         from matplotlib import colormaps
         from matplotlib.colors import LinearSegmentedColormap
+
+        _register_qmri_colormaps(colormaps, LinearSegmentedColormap)
 
         if "icefire" not in colormaps:
             # seaborn's icefire (blue → near-black → red), sampled at 33 stops so
