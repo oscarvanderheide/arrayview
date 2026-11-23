@@ -303,6 +303,8 @@
         .pane-name > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
         /* --match collection: current case name (_reconcileCaseTitle). */
         #case-title:not(.visible), .mv-pane-name:not(.visible) { display: none; }
+        /* Mosaic over loaded arrays: each tile's own name (_reconcileMosaicCaseNames). */
+        .pane-name.mosaic-case-name { top: 0; left: 0; font-size: 10px; letter-spacing: 0.08em; }
         #case-name-out > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
         /* --match name outside the panes (qMRI, qMRI ortho, horizontal ortho): on the
            dimbar's baseline, over the top-left pane's label. _placeCaseNameOut(). */
@@ -24792,8 +24794,10 @@
                 if (outside) _placeCaseNameOut();
             }
             const mvNames = multiViewActive ? mvViews.map(v => v.nameEl).filter(Boolean) : [];
+            // A mosaic of the arrays names every tile instead.
+            const tiled = _mosaicGridPlain() && _mosaicCaseDim() >= 0;
             for (const n of [el, ...mvNames]) {
-                const shown = text != null && (n === el || (n === mvViews[0]?.nameEl && !outside));
+                const shown = text != null && !(n === el && tiled) && (n === el || (n === mvViews[0]?.nameEl && !outside));
                 n.classList.toggle('visible', shown);
                 if (!shown || n.dataset.name === text) continue;
                 n.dataset.name = text;
@@ -24801,6 +24805,58 @@
                 n.lastElementChild.textContent = text;
             }
             _caseVeil?.check();
+            _reconcileMosaicCaseNames();
+        }
+
+        // Mosaic over the arrays dim of loaded files: -1 when the mosaic tiles
+        // no such dim.
+        function _mosaicCaseDim() {
+            const c = collectionSpatialNdim;
+            if (dim_z < 0 || !Array.isArray(caseNames) || !(c >= 0) || caseNames.length !== Number(shape[c])) return -1;
+            return dim_z === c || _mosaicDim2() === c ? c : -1;
+        }
+
+        // Each tile of an arrays mosaic named in its own top-left corner (the
+        // single view's one name is right for one tile only). Follows the
+        // tiles every frame while such a mosaic is up; hidden during glides
+        // and on tiles too small to hold a name.
+        var _mosaicNames = { els: [], key: '', raf: 0 };   // var: renderInfo may run before this line
+        function _reconcileMosaicCaseNames() {
+            const m = _mosaicNames;
+            const cd = _mosaicGridPlain() ? _mosaicCaseDim() : -1;
+            const title = document.getElementById('case-title'), host = title?.parentElement;
+            const main = document.getElementById('viewer');
+            const items = [];
+            if (cd >= 0 && host && main && !_orthoGlideBusy && main.width) {
+                const hr = host.getBoundingClientRect();
+                const z2 = _mosaicDim2(), sz = _mosaicSel(dim_z), sel = cd === dim_z ? sz : _mosaicSel(z2);
+                const n = _mosaicGridInfo().n, parts = _arrayNameParts(caseNames);
+                for (let k = 0; k < n; k++) {
+                    const kk = cd === dim_z ? (z2 >= 0 ? k % sz.n : k) : Math.floor(k / sz.n);
+                    const ci = sel.at(kk);
+                    if (kk > sel.last || ci >= caseNames.length) continue;
+                    const b = _rectOfBox(main, _mosaicTileBox(k));
+                    if (b.width < 56) continue;
+                    items.push({ text: String(parts[ci]?.key || caseNames[ci]), left: Math.round(b.left - hr.left + 6), top: Math.round(b.top - hr.top + 5), w: Math.round(b.width - 12) });
+                }
+            }
+            const key = JSON.stringify(items);
+            if (key !== m.key) {
+                m.key = key;
+                m.els.forEach(e => e.remove());
+                m.els = items.map(it => {
+                    const e = document.createElement('div');
+                    e.className = 'pane-name mosaic-case-name';
+                    e.setAttribute('aria-hidden', 'true');
+                    e.style.transform = `translate(${it.left}px, ${it.top}px)`;
+                    e.style.maxWidth = `${it.w}px`;
+                    e.innerHTML = '<span></span>';
+                    e.lastElementChild.textContent = it.text;
+                    host.appendChild(e);
+                    return e;
+                });
+            }
+            if (cd >= 0 && !m.raf) m.raf = requestAnimationFrame(() => { m.raf = 0; _reconcileMosaicCaseNames(); });
         }
 
         function renderInfo() {
