@@ -717,7 +717,9 @@ def _in_rex_remote() -> bool:
     if _rex_remote_cache is not None:
         return _rex_remote_cache
     _rex_remote_cache = False
-    if os.environ.get("TERM_PROGRAM") != "rex" or not os.environ.get("REX_SERVER"):
+    # REX_SERVER is not a reliable marker: a systemd socket-activated Rex server
+    # (what ``rex server install`` sets up on Linux) leaves it unset.
+    if os.environ.get("TERM_PROGRAM") != "rex":
         return False
     import json
     import shutil

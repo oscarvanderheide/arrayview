@@ -65,6 +65,13 @@ def test_app_reaching_server_through_sshd_is_remote(rex_env):
     assert _platform._in_rex_remote() is True
 
 
+def test_remote_without_rex_server_variable(rex_env, monkeypatch):
+    # A systemd socket-activated Rex server does not set REX_SERVER.
+    monkeypatch.delenv("REX_SERVER")
+    rex_env(_clients(4242), "sshd")
+    assert _platform._in_rex_remote() is True
+
+
 def test_app_over_network_is_remote(rex_env):
     rex_env(_clients(4242, transport="tcp"), "anything")
     assert _platform._in_rex_remote() is True
