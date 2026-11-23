@@ -11681,6 +11681,23 @@
             if (detachedDimMode) updateCompareTitles();
         }
 
+        // What Enter will do with the typed line: a slice number, or with a ':'
+        // a mosaic pick (:4 every 4th slice, 2:5:120 start:stride:stop).
+        function _sliceJumpStatus() {
+            return (sliceJumpBuffer.includes(':') ? 'tile: ' : 'jump to slice: ') + sliceJumpBuffer + '_';
+        }
+
+        // Enter on a typed line with a ':' — tile the dim as the z box would.
+        // A leading ':' and one number is a stride over the whole dim.
+        function _sliceJumpTile(buf) {
+            const d = _zPickDim();
+            if (d < 0) { showStatus('cannot tile here'); return; }
+            const r = _zPickParse(d, /^:\d*$/.test(buf) ? buf.slice(1) : buf);
+            if (r.err) { showStatus(`tile ${buf}: ${r.err}`); return; }
+            showStatus('');
+            _mosaicApplyPick(d, r.pick);
+        }
+
         function _bumpSpreadPane(delta, key) {
             if (!detachedDimMode || detachedDim < 0 || !Number.isFinite(delta)) return false;
             const size = Number(shape[detachedDim]) || 0;
@@ -32453,7 +32470,7 @@
                         _sliceJumpShow();
                         if (sliceJumpTimeout) clearTimeout(sliceJumpTimeout);
                         sliceJumpTimeout = setTimeout(() => { sliceJumpBuffer = ''; _sliceJumpShow(); showStatus(''); }, 2000);
-                        showStatus(`jump to slice: ${sliceJumpBuffer}_`);
+                        showStatus(_sliceJumpStatus());
                     } else {
                         // Reset to normal fit from anywhere (including immersive)
                         if (_zoomTween) { _zoomTween.kill(); _zoomTween = null; }
@@ -33665,9 +33682,11 @@
                     if (_segMode && sliceJumpBuffer.length === 0) { _segAccept(); return; }
                     // Enter key: jump to buffered slice index (1-based input)
                     if (sliceJumpBuffer.length > 0) {
-                        const targetIndex = parseInt(sliceJumpBuffer, 10) - 1;
+                        const buf = sliceJumpBuffer;
+                        const targetIndex = parseInt(buf, 10) - 1;
                         sliceJumpBuffer = '';
                         if (sliceJumpTimeout) { clearTimeout(sliceJumpTimeout); sliceJumpTimeout = null; }
+                        if (buf.includes(':')) { _sliceJumpShow(); _sliceJumpTile(buf); return; }
                         const pane = detachedDimMode ? _spreadTargetPane() : -1;
                         if (pane >= 0) { _spreadPaneJump(pane, targetIndex); return; }
                         _sliceJumpShow();
@@ -33711,7 +33730,8 @@
                 title: 'Buffer digit for slice-jump',
                 when: [],
                 run: (ctx, e) => {
-                    // Digit key (1-9): accumulate for slice index jump
+                    // Digit key (1-9) or ':': accumulate for slice index jump / mosaic pick
+                    if (e.key === ':' && (cutawayActive || (sliceJumpBuffer.match(/:/g) || []).length >= 2)) return;
                     if (cutawayActive) { sliceJumpBuffer += e.key; renderInfo(); showStatus(`jump to slice: ${sliceJumpBuffer}_`); return; }
                     sliceJumpBuffer += e.key;
                     _sliceJumpShow();
@@ -33722,7 +33742,7 @@
                         _sliceJumpShow();
                         showStatus('');
                     }, 2000);
-                    showStatus(`jump to slice: ${sliceJumpBuffer}_`);
+                    showStatus(_sliceJumpStatus());
                 },
             },
             'qmri.cycle': {
@@ -34305,6 +34325,7 @@
             { key: '7', command: 'slice.bufferDigit' },
             { key: '8', command: 'slice.bufferDigit' },
             { key: '9', command: 'slice.bufferDigit' },
+            { key: ':', command: 'slice.bufferDigit' },
             { key: 'Enter', command: 'modePicker.confirm' },
             { key: 'Enter', command: 'cycleOverlay.dismiss' },
             { key: 'Enter', command: 'slice.jumpCommit' },
@@ -34384,6 +34405,7 @@
                             { key: 's (hold)', action: 'Side by side — choose the number of panes', hint: 'holding s brings up a strip of pane counts · arrows, a digit or the mouse choose · release s to apply · Esc cancels' },
                             { key: '[ / ] or number Enter', action: 'Side by side — change what the pane under the mouse shows', hint: 'type a slice (or array) number and Enter to jump straight to it · j/k move them all · two panes compare: X opens the difference · neighbours of three or more page along' },
                             { key: '1–9 Enter', action: 'Jump to a specific slice number' },
+                            { key: ': Enter', action: 'Mosaic from the keyboard — :4 tiles every 4th slice', hint: 'start:stride:stop as in Julia, numbered from 1, stop included (2:5:120) · start:stop takes every slice in between · works on the dim picked in the dim bar, or re-picks a mosaic that is already on' },
                         ]
                     },
                     {
