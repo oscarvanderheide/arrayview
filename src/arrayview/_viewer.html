@@ -27516,7 +27516,13 @@
                 playLastFrameTime = performance.now();
                 playNextVfieldT();
             } else {
-                playingDim = current_slice_dim;
+                // The arrays dim of loaded files, when picked in the dim bar, plays
+                // file after file (scrolling never steps it, so it is never the
+                // slice dim); anything else plays the slice dim as before.
+                const a = activeDim, c = collectionSpatialNdim;
+                const arrays = c >= 0 && a === c && Array.isArray(caseNames) && caseNames.length === Number(shape[c])
+                    && !_isMosaicDim(a) && !(detachedDimMode && detachedDim === a) && Number(shape[a]) > 1;
+                playingDim = arrays ? a : current_slice_dim;
                 const sz = shape[playingDim];
                 playFps = _userPlayFps ?? _initialPlaybackFps(sz);
                 playLastFrameTime = performance.now();
@@ -34383,7 +34389,7 @@
                     {
                         title: 'Playback',
                         entries: [
-                            { key: 'Space', action: 'Play / pause animation' },
+                            { key: 'Space', action: 'Play / pause animation', hint: 'plays the slices · with the dim of loaded files picked in the dim bar, plays file after file' },
                             { key: '< >', action: 'Slower / faster playback' },
                         ]
                     },
@@ -48326,7 +48332,10 @@
             // Skip the fade when image-anchored overlays are active — the fade
             // canvas sits above them and would briefly obscure the overlay.
             const roiPinnedOverlay = !!(rectRoiMode && _roiVisible && _rois.length);
-            if (!hasVectorfield && !roiPinnedOverlay && _fadeCanvas && _fadeCtx && lastImageData && lastImgW === width && lastImgH === height) {
+            // Playing through loaded files: each file is its own picture, and the
+            // fade stacked two or three of them on top of each other.
+            const playingFiles = isPlaying && playingDim >= 0 && playingDim === collectionSpatialNdim;
+            if (!hasVectorfield && !roiPinnedOverlay && !playingFiles && _fadeCanvas && _fadeCtx && lastImageData && lastImgW === width && lastImgH === height) {
                 _fadeCanvas.width = width;
                 _fadeCanvas.height = height;
                 _fadeCanvas.style.width = canvas.style.width;
