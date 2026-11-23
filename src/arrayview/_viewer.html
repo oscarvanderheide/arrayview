@@ -24756,7 +24756,8 @@
         }
 
         function _dimIndexDisplay(i, value, maxValue, active) {
-            const pending = sliceJumpBuffer.length > 0 && active;
+            // A number typed over a side-by-side pane belongs to that pane, not the dim bar.
+            const pending = sliceJumpBuffer.length > 0 && active && !(detachedDimMode && _spreadTargetPane() >= 0);
             const shownValue = pending ? sliceJumpBuffer : value;
             const cls = pending ? 'dim-idx dim-idx-pending' : 'dim-idx';
             return `<span class="${cls}">${_dimIndexHtml(shownValue, maxValue)}</span>`;
@@ -31229,8 +31230,17 @@
         // no mosaic the dim z would tile. -1 where the box does not apply.
         function _zPickDim() {
             if (!_mosaicGridPlain() || qmriActive || activeDim === VFIELD_T_DIM || shape.length < 3) return -1;
-            const d = dim_z >= 0 ? (_isMosaicDim(activeDim) ? activeDim : dim_z) : current_slice_dim;
+            const d = dim_z >= 0 ? (_isMosaicDim(activeDim) ? activeDim : dim_z) : _zTileDim();
             return d >= 0 && d < shape.length && d !== dim_x && d !== dim_y ? d : -1;
+        }
+
+        // Dim z tiles from one image: the dim picked in the dim bar, as s and
+        // Shift+arrows take it (the which-file dim of loaded arrays too, which
+        // scrolling never steps), else the dim scrolling steps.
+        function _zTileDim() {
+            const a = activeDim;
+            return Number.isInteger(a) && a >= 0 && a < shape.length && a !== dim_x && a !== dim_y
+                && Number(shape[a]) > 1 ? a : current_slice_dim;
         }
 
         // z went down: true when the press is ours.
@@ -31374,9 +31384,11 @@
                 help.hidden = false;
                 hint.hidden = !ask;
                 if (ask) title.innerHTML = `<b>${N}</b> tiles would be too small to read`;
-                help.innerHTML = (ask ? '' : '<b>Which slices to tile</b>')
-                    + '<i>N</i><span>every Nth slice</span>'
-                    + '<i>start:stride:stop</i><span>a range, every stride-th slice</span>';
+                // Loaded arrays are arrays, not slices.
+                const what = _isCollectionDim(d) ? 'array' : 'slice';
+                help.innerHTML = (ask ? '' : `<b>Which ${what}s to tile</b>`)
+                    + `<i>N</i><span>every Nth ${what}</span>`
+                    + `<i>start:stride:stop</i><span>a range, every stride-th ${what}</span>`;
                 if (ask) hint.innerHTML = '<b>Enter</b> tiles these · <b>z</b> tiles all ' + N + ' anyway · <b>Esc</b> cancels'
                     + '<br>hold <b>z</b> later to change the stride';
                 const f = el.querySelector('[data-z-field]');
@@ -32899,13 +32911,17 @@
                         return;
                     }
                     // That dim is already one pane each: tiling it again repeats every pane.
-                    if (dim_z < 0 && detachedDim >= 0 && current_slice_dim === detachedDim) {
+                    const zt = dim_z < 0 ? _zTileDim() : dim_z;
+                    if (dim_z < 0 && detachedDim >= 0 && zt === detachedDim) {
                         _mosaicNotice('already side by side', ['a mosaic here would repeat every pane', 'tap <b>s</b> for one image, then <b>z</b>']);
                         return;
                     }
                     // The plain view thins a big dim with the hold-z strip instead.
-                    if (dim_z < 0 && _zPickDim() < 0 && !_mosaicSizeOk(shape[current_slice_dim], 32, `${shape[current_slice_dim]} tiles`, shape[current_slice_dim], 'z', `z:${current_slice_dim}`)) return;
-                    _afterGlide(_mosaicToggle);
+                    if (dim_z < 0 && _zPickDim() < 0 && !_mosaicSizeOk(shape[zt], 32, `${shape[zt]} tiles`, shape[zt], 'z', `z:${zt}`)) return;
+                    _afterGlide(() => {
+                        if (dim_z < 0 && zt !== current_slice_dim) { current_slice_dim = zt; _invalidateVolHistCache(); }
+                        _mosaicToggle();
+                    });
                 },
             },
             'mosaic.across': {
@@ -45775,8 +45791,15 @@
         }
 
         function _mosaicCommit() {
+            let keepActive = -1;
             if (dim_z >= 0) {
                 current_slice_dim = dim_z;
+                // Loaded arrays: back to scrolling slices, the arrays dim stays picked.
+                if (_isCollectionDim(dim_z)) {
+                    keepActive = dim_z;
+                    const d = shape.findIndex((n, i) => i !== dim_x && i !== dim_y && !_isCollectionDim(i) && n > 1);
+                    if (d >= 0) current_slice_dim = d;
+                }
                 dim_z = -1; dim_z2 = -1; mosaicLayout = 'square';
             } else {
                 dim_z = current_slice_dim;
@@ -45789,7 +45812,7 @@
                     if (d !== dim_x && d !== dim_y && !_isCollectionDim(d)) { current_slice_dim = d; break; }
                 }
             }
-            activeDim = current_slice_dim;
+            activeDim = keepActive >= 0 ? keepActive : current_slice_dim;
             _invalidateVolHistCache();
             updateView(); triggerPreload();
         }
