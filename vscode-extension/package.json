@@ -2,7 +2,7 @@
   "name": "arrayview-opener",
   "displayName": "ArrayView Opener",
   "description": "Opens ArrayView through private, request-scoped VS Code display routes",
-  "version": "0.15.80",
+  "version": "0.15.81",
   "publisher": "arrayview",
   "license": "MIT",
   "icon": "icon.png",
@@ -41,6 +41,12 @@
           "default": "arrayview",
           "description": "Package spec used when launching ArrayView through uv. Set to an absolute path to a local checkout to run that working tree instead of the released package.",
           "scope": "machine-overridable"
+        },
+        "arrayview.sshHosts": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": { "type": "string" },
+          "description": "For array files in SSH FS folders: maps an SSH FS connection name to the ssh destination ArrayView should run on, for example { \"my-project\": \"gpu-box\" }. A name that is not listed is used as the destination itself."
         }
       }
     },

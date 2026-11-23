@@ -1644,6 +1644,203 @@ function _spawnPythonForFile(filePath, title) {
     });
 }
 
+// ---------------------------------------------------------------------------
+// Arrays in an SSH FS workspace folder (ssh://<name>/<absolute path>).
+//
+// The file is on another machine and this window is not connected to it, so
+// none of the launch paths above apply: ArrayView has to run over there. One
+// ssh command starts it for the file, one forwarded port brings its viewer
+// here, and from then on the request is an ordinary open-preview for a
+// localhost URL. <name> is used as the ssh destination unless the
+// `arrayview.sshHosts` setting maps it to another one.
+// ---------------------------------------------------------------------------
+const _sshForwards = new Map();
+
+function _sshDestination(uri) {
+    const hosts = vscode.workspace.getConfiguration('arrayview').get('sshHosts') || {};
+    return hosts[uri.authority] || uri.authority;
+}
+
+function _shellQuote(value) {
+    return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function _runSsh(args, timeoutMs = 30000) {
+    return new Promise((resolve) => {
+        let child;
+        try {
+            child = spawn('ssh', ['-o', 'BatchMode=yes', ...args], {
+                stdio: ['ignore', 'pipe', 'pipe'],
+            });
+        } catch (error) {
+            resolve({ code: -1, stdout: '', stderr: error.message });
+            return;
+        }
+        let stdout = '';
+        let stderr = '';
+        const timer = setTimeout(() => { try { child.kill(); } catch (_) {} }, timeoutMs);
+        child.stdout.on('data', (chunk) => { stdout += chunk; });
+        child.stderr.on('data', (chunk) => { stderr += chunk; });
+        child.on('error', (error) => {
+            clearTimeout(timer);
+            resolve({ code: -1, stdout, stderr: stderr + error.message });
+        });
+        child.on('close', (code) => {
+            clearTimeout(timer);
+            resolve({ code, stdout, stderr });
+        });
+    });
+}
+
+function _freeLocalPort() {
+    return new Promise((resolve, reject) => {
+        const server = require('net').createServer();
+        server.on('error', reject);
+        server.listen(0, 'localhost', () => {
+            const { port } = server.address();
+            server.close(() => resolve(port));
+        });
+    });
+}
+
+async function _arrayviewPing(port) {
+    try {
+        const ping = await httpJson(`http://localhost:${port}/ping`, 2000);
+        return ping && ping.service === 'arrayview' && ping.instance_id ? ping : null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function _closeSshForward(key) {
+    const forward = _sshForwards.get(key);
+    if (!forward) return;
+    _sshForwards.delete(key);
+    try {
+        if (forward.child) {
+            forward.child.kill();
+        } else {
+            spawn('ssh', ['-O', 'cancel', '-L', forward.spec, forward.dest], {
+                stdio: 'ignore', detached: true,
+            }).unref();
+        }
+    } catch (_) {}
+}
+
+function _closeAllSshForwards() {
+    for (const key of [..._sshForwards.keys()]) _closeSshForward(key);
+}
+
+// A local port that reaches the ArrayView server on `dest`. Kept for the life
+// of the window and shared by every file opened from that server.
+async function _sshForward(dest, remotePort) {
+    const key = `${dest}:${remotePort}`;
+    const existing = _sshForwards.get(key);
+    if (existing) {
+        const ping = await _arrayviewPing(existing.localPort);
+        if (ping) return { localPort: existing.localPort, serverId: ping.instance_id };
+        _closeSshForward(key);
+    }
+    const localPort = await _freeLocalPort();
+    const spec = `${localPort}:localhost:${remotePort}`;
+    const forward = { dest, spec, localPort, child: null };
+    // An ssh connection that is already open and shared takes the forward at
+    // once. Without one, a process of our own holds it.
+    const shared = await _runSsh(['-O', 'forward', '-L', spec, dest], 10000);
+    if (shared.code !== 0) {
+        forward.child = spawn(
+            'ssh',
+            ['-N', '-o', 'BatchMode=yes', '-o', 'ExitOnForwardFailure=yes', '-L', spec, dest],
+            { stdio: 'ignore' }
+        );
+        forward.child.on('exit', () => {
+            if (_sshForwards.get(key) === forward) _sshForwards.delete(key);
+        });
+    }
+    _sshForwards.set(key, forward);
+    const deadline = Date.now() + 30000;
+    while (Date.now() < deadline && _sshForwards.get(key) === forward) {
+        const ping = await _arrayviewPing(localPort);
+        if (ping) return { localPort, serverId: ping.instance_id };
+        await new Promise(r => setTimeout(r, 300));
+    }
+    _closeSshForward(key);
+    throw new Error(`Could not reach ArrayView on ${dest}.`);
+}
+
+async function launchArrayViewSshFile(uri, title) {
+    const dest = _sshDestination(uri);
+    const remotePath = uri.path;
+    if (!dest) throw new Error('This folder does not say which machine it is on.');
+    log(`SSHFS: starting ArrayView on ${dest} for ${remotePath}`);
+    // A login shell, because a bare ssh command has neither uv nor
+    // ~/.local/bin on its PATH. An installed arrayview wins over uvx.
+    const script = 'if command -v arrayview >/dev/null 2>&1; then exec arrayview "$1"; '
+        + 'else exec uvx arrayview "$1"; fi';
+    const started = await _runSsh(
+        [dest, `bash -lc ${_shellQuote(script)} arrayview ${_shellQuote(remotePath)}`],
+        180000
+    );
+    const match = /http:\/\/localhost:(\d+)\//.exec(started.stdout);
+    if (!match) {
+        const detail = (started.stderr || started.stdout).trim().slice(-600);
+        throw new Error(`ArrayView did not start on ${dest}.\n${detail}`);
+    }
+    const forward = await _sshForward(dest, Number(match[1]));
+
+    // The command above does not say which session it made, so take the newest
+    // one for this file.
+    let sid = null;
+    const sessionDeadline = Date.now() + 15000;
+    while (!sid && Date.now() < sessionDeadline) {
+        let sessions = null;
+        try {
+            sessions = await httpJson(`http://localhost:${forward.localPort}/sessions`, 3000);
+        } catch (_) {}
+        const mine = Array.isArray(sessions)
+            ? sessions.filter(s => s && s.filepath === remotePath)
+            : [];
+        if (mine.length) sid = mine[mine.length - 1].sid;
+        else await new Promise(r => setTimeout(r, 300));
+    }
+    if (!sid) throw new Error(`ArrayView on ${dest} did not load ${title}.`);
+
+    const url = `http://localhost:${forward.localPort}/?sid=${encodeURIComponent(sid)}`
+        + `&av_name=${encodeURIComponent(title)}`;
+    const requestId = crypto.randomBytes(16).toString('hex');
+    const ackPath = path.join(SIGNAL_DIR, `open-ack-v0100-${requestId}.json`);
+    const written = _writeSignalFile({
+        action: 'open-preview',
+        url, title: `ArrayView: ${title}`,
+        maxAgeMs: 240000, protocolVersion: 1, requestId, ackPath,
+        requiredExtensionVersion: version,
+        remoteOnly: Boolean(vscode.env.remoteName),
+        windowId: logWindowId,
+        serverId: forward.serverId,
+        handoffPath: remotePath,
+        sentAtMs: Date.now(),
+    });
+    if (!written) throw new Error('This window could not take the request.');
+    void tryOpenSignalFile();
+
+    const ackDeadline = Date.now() + 30000;
+    while (Date.now() < ackDeadline) {
+        await new Promise(r => setTimeout(r, 150));
+        let ack = null;
+        try { ack = JSON.parse(fs.readFileSync(ackPath, 'utf8')); } catch (_) {}
+        if (!ack || ack.requestId !== requestId) continue;
+        if (ack.state === 'panel_opened' || ack.state === 'backend_ready'
+            || ack.state === 'visibility_verified') {
+            log(`SSHFS: ${ack.state} for ${title} from ${dest}`);
+            return;
+        }
+        if (ack.state === 'failed') {
+            throw new Error(ack.message || 'The viewer could not be shown.');
+        }
+    }
+    log(`SSHFS: no answer yet for ${title} from ${dest}; leaving the tab waiting`);
+}
+
 function isArrayViewCustomEditorTab(tab, uri = null) {
     const input = tab && tab.input;
     if (!input || input.viewType !== ArrayViewEditorProvider.viewType) {
@@ -1956,6 +2153,23 @@ class ArrayViewEditorProvider {
     }
 
     async resolveCustomEditor(document, webviewPanel, _token) {
+        if (document.uri.scheme !== 'file' && document.uri.scheme !== 'vscode-remote') {
+            // Not a file this window can read from disk. SSH FS folders are
+            // the one such kind ArrayView can follow to their machine.
+            const remoteTitle = path.posix.basename(document.uri.path);
+            const remoteHandoff = _registerHandoffPlaceholder(
+                webviewPanel, document.uri.path, remoteTitle, 'SSHFS'
+            );
+            try {
+                if (document.uri.scheme !== 'ssh') {
+                    throw new Error('ArrayView cannot open files from this kind of folder.');
+                }
+                await launchArrayViewSshFile(document.uri, remoteTitle);
+            } catch (e) {
+                remoteHandoff.reportError(e);
+            }
+            return;
+        }
         const filePath = document.uri.fsPath;
         const title = path.basename(filePath);
         log(`CUSTOM-EDITOR: resolveCustomEditor for ${filePath}`);
@@ -5253,6 +5467,13 @@ function activate(context) {
 
     const openFileCmd = vscode.commands.registerCommand('arrayview.openFile', async (uri) => {
         let filePath;
+        if (uri && uri.scheme === 'ssh') {
+            // A file in an SSH FS folder: the editor for it knows the way.
+            await vscode.commands.executeCommand(
+                'vscode.openWith', uri, ArrayViewEditorProvider.viewType
+            );
+            return;
+        }
         if (uri && uri.fsPath) {
             filePath = uri.fsPath;
         } else {
@@ -5332,6 +5553,7 @@ function activate(context) {
 
 function deactivate() {
     log(`deactivate v${version}`);
+    _closeAllSshForwards();
 }
 
 module.exports = {

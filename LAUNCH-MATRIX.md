@@ -52,6 +52,21 @@ that actually occur, not the cross-product.
 
 ## The table
 
+### 2026-11-23 arrays in SSH FS folders (opener 0.15.81)
+
+New row 23. A click on an array in an SSH FS workspace folder (`ssh://name/path`)
+used to look for the file on the local disk. The opener now starts ArrayView on
+that machine over ssh (`name`, or its entry in `arrayview.sshHosts`), forwards a
+free local port to it, and shows the newest session for that file through the
+ordinary open-preview request.
+
+- Rows that share the changed entry point: 19-22 (Explorer clicks). The only
+  change for them is an early branch on the document's scheme; none of them was
+  re-run.
+- Not covered: a server left running on the other machine after the tab closes,
+  two clicks on the same file in quick succession (the session is picked as
+  "newest for this path"), and hosts where ssh asks for a password.
+
 ### 2026-11-19 Windows: spawned server always "did not claim port"
 
 Rows changed: every Windows launch that spawns a background server (CLI
@@ -452,6 +467,7 @@ tried, no page errors.
 | 20 | VS Code tunnel | vscode tab | folder / collection | **current handoff change: 2026-08-14 `component`; real-host revalidation unavailable**. A valid collection passed on the previous design 2026-08-06 `real host`; misleading invalid-collection errors remain separate |
 | 21 | VS Code Remote SSH | vscode tab | small | never verified |
 | 22 | VS Code local (no remote) | vscode tab | small | never verified |
+| 23 | VS Code local window, file in an SSH FS folder on another machine (opener 0.15.81) | vscode tab | small `.npy` on roodnoot | **2026-11-23 `real host`, by the user**: one click on a 5x64x256x256 array showed it in a tab. Mac window, SSH FS 1.27.0, ssh through a shared connection. Repeat clicks, closing the tab and shutdown of the server on the other machine were not checked |
 
 ### Lifecycle (cuts across every row above)
 
