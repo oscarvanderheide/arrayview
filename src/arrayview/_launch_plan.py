@@ -27,6 +27,7 @@ _SNAPSHOT_ENV_KEYS = (
     "WAYLAND_DISPLAY",
     "SSH_CLIENT",
     "SSH_CONNECTION",
+    "REX_SERVER",
 )
 
 
@@ -157,6 +158,9 @@ class LaunchEnvironmentSnapshot:
     # This user's own reusable server on another port, found only when the
     # requested port is held by something we cannot reuse (shared machines).
     own_server: ServerSnapshot | None = None
+    # A Rex terminal whose Rex app is on another machine: treated like plain
+    # SSH (print a link), except Rex forwards the port when it is clicked.
+    rex_remote: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -284,7 +288,7 @@ def _placement(evidence: LaunchEnvironmentSnapshot) -> Placement:
         return Placement.VSCODE_REMOTE
     if evidence.in_vscode_terminal:
         return Placement.VSCODE_LOCAL
-    if evidence.ssh_connection or evidence.ssh_client:
+    if evidence.ssh_connection or evidence.ssh_client or evidence.rex_remote:
         return Placement.SSH
     return Placement.LOCAL
 
@@ -557,13 +561,14 @@ def snapshot_launch_environment(
     in_vscode_tunnel = _platform_bool("_in_vscode_tunnel")
     ssh_connection = bool(os.environ.get("SSH_CONNECTION"))
     ssh_client = bool(os.environ.get("SSH_CLIENT"))
+    rex_remote = _platform_bool("_in_rex_remote")
     environment = _classify_environment(
         in_jupyter=in_jupyter,
         in_julia=in_julia,
         in_vscode_terminal=in_vscode_terminal,
         is_vscode_remote=is_vscode_remote,
         ssh_connection=ssh_connection,
-        ssh_client=ssh_client,
+        ssh_client=ssh_client or rex_remote,
     )
 
     return LaunchEnvironmentSnapshot(
@@ -582,6 +587,7 @@ def snapshot_launch_environment(
         in_vscode_tunnel=in_vscode_tunnel,
         ssh_connection=ssh_connection,
         ssh_client=ssh_client,
+        rex_remote=rex_remote,
         hostname=socket.gethostname(),
         cli_default_server=(
             _server_snapshot(8000)

@@ -701,6 +701,77 @@ def _is_vscode_remote() -> bool:
     return False
 
 
+_rex_remote_cache: bool | None = None
+
+
+def _in_rex_remote() -> bool:
+    """True in a Rex terminal whose Rex app runs on another machine.
+
+    Rex remote terminals carry no SSH_* variables, so they look like a local
+    desktop. The Rex server on this host knows which apps are attached: an app
+    on this machine connects as a local process, while an app on another
+    machine reaches the server through sshd (or over the network). The user
+    then Cmd-clicks a printed ``localhost`` link and Rex forwards the port.
+    """
+    global _rex_remote_cache
+    if _rex_remote_cache is not None:
+        return _rex_remote_cache
+    _rex_remote_cache = False
+    if os.environ.get("TERM_PROGRAM") != "rex" or not os.environ.get("REX_SERVER"):
+        return False
+    import json
+    import shutil
+    import subprocess
+
+    bin_dir = os.environ.get("REX_BIN_DIR")
+    rex = (
+        os.path.join(bin_dir, "rex")
+        if bin_dir and os.path.isfile(os.path.join(bin_dir, "rex"))
+        else shutil.which("rex")
+    )
+    if not rex:
+        return False
+    try:
+        out = subprocess.run(
+            [rex, "--autostart=false", "--timeout", "1s", "client", "ls", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        clients = json.loads(out.stdout or "{}").get("clients", [])
+    except Exception:
+        return False
+    apps = [
+        c
+        for c in clients
+        if (c.get("info") or {}).get("kind") == "app"
+        and c.get("connection_state", "connected") == "connected"
+    ]
+    if not apps:
+        return False
+
+    def _is_local_app(client: dict) -> bool:
+        principal = client.get("principal") or {}
+        if principal.get("transport") != "unix":
+            return False
+        pid = principal.get("pid")
+        if not isinstance(pid, int):
+            return False
+        try:
+            name = subprocess.run(
+                ["ps", "-o", "comm=", "-p", str(pid)],
+                capture_output=True,
+                text=True,
+                timeout=1,
+            ).stdout.strip()
+        except Exception:
+            return True
+        return bool(name) and "sshd" not in os.path.basename(name)
+
+    _rex_remote_cache = not any(_is_local_app(c) for c in apps)
+    return _rex_remote_cache
+
+
 def _in_vscode_tunnel() -> bool:
     """True for a VS Code tunnel remote, excluding Remote-SSH."""
     if os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"):
@@ -722,6 +793,8 @@ def _can_native_window() -> bool:
         return False
     # Plain SSH (no VS Code): the display is on the client machine, not here.
     if os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"):
+        return False
+    if _in_rex_remote():
         return False
     return _native_window_gui() is not None
 
@@ -813,5 +886,7 @@ def detect_environment() -> str:
     if _is_julia_env():
         return "julia"
     if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_CLIENT"):
+        return "ssh"
+    if _in_rex_remote():
         return "ssh"
     return "terminal"

@@ -2214,13 +2214,7 @@ def _handle_cli_spawned_daemon(
                 ),
             )
 
-        daemon_connect_timeout = (
-            _LOCAL_VSCODE_CONNECT_TIMEOUT_SECONDS
-            if launch_context is not None
-            and launch_context.placement.value == "vscode_local"
-            and launch_context.plan.display.value == "vscode"
-            else None
-        )
+        daemon_connect_timeout = _daemon_connect_timeout(launch_context)
 
         script = (
             f"from arrayview._launcher import _serve_daemon;"
@@ -2893,6 +2887,22 @@ _OVERLAY_PALETTE = ["d65b5b", "5aa66a", "5f84d7", "d5ad4f", "c06bb7", "55b9bd"]
 _JUPYTER_PROXY_INLINE_CACHE: bool | None = None
 _CLI_DAEMON_CONNECT_TIMEOUT_SECONDS = 20.0
 _LOCAL_VSCODE_CONNECT_TIMEOUT_SECONDS = 70.0
+# Over SSH or a remote Rex terminal the user first has to click a printed link
+# (and maybe set up a forward), so wait much longer for the first viewer.
+_PRINTED_LINK_CONNECT_TIMEOUT_SECONDS = 600.0
+
+
+def _daemon_connect_timeout(launch_context) -> float | None:
+    """How long a new CLI server waits for its first viewer (None = default)."""
+    if launch_context is None:
+        return None
+    placement = launch_context.placement.value
+    display = launch_context.plan.display.value
+    if placement == "vscode_local" and display == "vscode":
+        return _LOCAL_VSCODE_CONNECT_TIMEOUT_SECONDS
+    if placement == "ssh" and display == "browser":
+        return _PRINTED_LINK_CONNECT_TIMEOUT_SECONDS
+    return None
 # CLI-launched transient viewers should shut down promptly once the last viewer
 # closes. Keeping a warm idle daemon around caused native-window sessions to
 # appear orphaned after close.
@@ -4232,6 +4242,12 @@ def view(
                         _script_connect_timeout = (
                             _CLI_DAEMON_CONNECT_TIMEOUT_SECONDS
                         )
+                elif (
+                    _script
+                    and _launch_context.placement.value == "ssh"
+                    and _launch_plan.display is Display.BROWSER
+                ):
+                    _script_connect_timeout = _PRINTED_LINK_CONNECT_TIMEOUT_SECONDS
                 else:
                     _script_connect_timeout = _CLI_DAEMON_CONNECT_TIMEOUT_SECONDS
                 threading.Thread(
@@ -4730,13 +4746,7 @@ def _view_subprocess(
             and launch_context.placement.value == "vscode_remote"
             and launch_context.plan.display.value == "vscode"
         )
-        daemon_connect_timeout = (
-            _LOCAL_VSCODE_CONNECT_TIMEOUT_SECONDS
-            if launch_context is not None
-            and launch_context.placement.value == "vscode_local"
-            and launch_context.plan.display.value == "vscode"
-            else None
-        )
+        daemon_connect_timeout = _daemon_connect_timeout(launch_context)
         from arrayview._instance_registry import InstanceRegistry
 
         daemon_proc = None
@@ -5942,6 +5952,10 @@ def arrayview():
         return
     if _handle_management_command(sys.argv[1:]):
         return
+    if len(sys.argv) > 1 and sys.argv[1] == "rex":
+        from arrayview._rex import main as _rex_main
+
+        sys.exit(_rex_main(sys.argv[2:]))
 
     parser = argparse.ArgumentParser(description="Lightning Fast ND Array Viewer")
     from arrayview import __version__ as _av_version

@@ -442,27 +442,45 @@ def _open_browser(
                 except Exception:
                     port_hint = parsed_port
                 hostname = platform.node() or "<this-host>"
-                print(
-                    f"[ArrayView] Plain SSH session detected.\n"
-                    f"\n"
-                    f"  For the best experience, use VS Code Remote-SSH — arrays open\n"
-                    f"  automatically in a VS Code tab with zero setup.\n"
-                    f"\n"
-                    f"  From a plain terminal, forward port {port_hint} when connecting:\n"
-                    f"\n"
-                    f"    ssh -L {port_hint}:localhost:{port_hint} <user>@{hostname}\n"
-                    f"\n"
-                    f"  Then open in your local browser:\n"
-                    f"\n"
-                    f"    http://localhost:{port_hint}/\n"
-                    f"\n"
-                    f"  Tip: to avoid typing -L every time, add this to ~/.ssh/config\n"
-                    f"  on the machine you SSH from:\n"
-                    f"\n"
-                    f"    Host {hostname}\n"
-                    f"        LocalForward {port_hint} localhost:{port_hint}\n",
-                    flush=True,
-                )
+                from arrayview._platform import _in_rex_remote
+
+                if _in_rex_remote():
+                    from arrayview._rex import announce
+
+                    # A Mac helper (arrayview rex setup) opens it from this.
+                    asked_browser = launch_context is not None and (
+                        "explicit_browser" in launch_context.plan.reasons
+                    )
+                    announce(url, view="browser" if asked_browser else "native")
+                    print(
+                        f"[ArrayView] Cmd-click to open: "
+                        f"http://localhost:{port_hint}/\n"
+                        f"  To open by itself, run `arrayview rex setup` once "
+                        f"on your Mac.",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"[ArrayView] Plain SSH session detected.\n"
+                        f"\n"
+                        f"  For the best experience, use VS Code Remote-SSH — arrays open\n"
+                        f"  automatically in a VS Code tab with zero setup.\n"
+                        f"\n"
+                        f"  From a plain terminal, forward port {port_hint} when connecting:\n"
+                        f"\n"
+                        f"    ssh -L {port_hint}:localhost:{port_hint} <user>@{hostname}\n"
+                        f"\n"
+                        f"  Then open in your local browser:\n"
+                        f"\n"
+                        f"    http://localhost:{port_hint}/\n"
+                        f"\n"
+                        f"  Tip: to avoid typing -L every time, add this to ~/.ssh/config\n"
+                        f"  on the machine you SSH from:\n"
+                        f"\n"
+                        f"    Host {hostname}\n"
+                        f"        LocalForward {port_hint} localhost:{port_hint}\n",
+                        flush=True,
+                    )
         if not opened and not is_remote and not force_vscode and not is_plain_ssh:
             # Local fallback: open in system browser
             if sys.platform == "darwin":
