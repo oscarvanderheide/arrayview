@@ -22,6 +22,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -112,6 +113,45 @@ def _connected_endpoints() -> set[str]:
             if idx + 1 < len(parts) and parts[idx + 1].startswith("ssh://"):
                 endpoints.add(parts[idx + 1])
     return endpoints
+
+
+def _app_tunnel_address(endpoint: str, ps_output: str | None = None) -> str | None:
+    """``unix://`` address of the tunnel the Rex app already holds to *endpoint*.
+
+    Every ``rex -S ssh://host`` command logs in to the host again, which takes
+    many seconds on some machines. The app keeps one ssh tunnel per host, whose
+    local socket reaches the same server at once, so commands sent through it
+    skip the login. None when no such tunnel is found; callers then use
+    *endpoint* itself.
+    """
+    if ps_output is None:
+        try:
+            ps_output = subprocess.run(
+                ["ps", "-axo", "pid=,ppid=,args="],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            ).stdout
+        except Exception:
+            return None
+    rows = []
+    for line in ps_output.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
+            rows.append((int(parts[0]), int(parts[1]), parts[2]))
+    tunnels = {
+        pid
+        for pid, _, args in rows
+        if args.endswith(f" __internal ssh-tunnel {endpoint}")
+    }
+    for _, ppid, args in rows:
+        if ppid not in tunnels:
+            continue
+        # The socket path may contain spaces ("Application Support").
+        match = re.search(r" -L (/.+?\.sock):/", args)
+        if match and os.path.exists(match.group(1)):
+            return "unix://" + urllib.parse.quote(match.group(1))
+    return None
 
 
 def _report_from_event(event: dict) -> tuple[str, str] | None:
@@ -216,9 +256,11 @@ class Watcher:
     # -- forwarding and display ------------------------------------------
 
     def _start_forward(self, endpoint: str, remote_port: int) -> tuple[subprocess.Popen, int] | None:
+        # Through the app's open tunnel when there is one: no new ssh login.
+        server = _app_tunnel_address(endpoint) or endpoint
         proc = subprocess.Popen(
             [
-                self.rex, "-S", endpoint, "forward", "open", "--no-open",
+                self.rex, "-S", server, "forward", "open", "--no-open",
                 "--port", "0", str(remote_port),
             ],
             stdout=subprocess.PIPE,

@@ -208,3 +208,22 @@ def test_window_browser_plans_explicit_browser():
         facts,
     )
     assert "explicit_browser" in plan.reasons
+
+
+def test_mac_helper_reuses_the_apps_tunnel(tmp_path):
+    from arrayview import _rex
+
+    sock = tmp_path / "Application Support" / "abc.sock"
+    sock.parent.mkdir()
+    sock.write_text("")
+    ps = (
+        " 4732 90382 /Apps/Rex Server.app/Contents/MacOS/rex __internal ssh-tunnel ssh://gpu\n"
+        f" 4733  4732 /usr/bin/ssh -N -T -o ControlPath=none -L {sock}:/run/user/1/rex/server.sock -- ssh://gpu\n"
+        # A tunnel of some other rex command, and one to another host.
+        f" 4850  4849 /usr/bin/ssh -N -T -L {tmp_path}/other.sock:/run/user/1/rex/server.sock -- ssh://gpu\n"
+        " 5000 90382 /Apps/Rex Server.app/Contents/MacOS/rex __internal ssh-tunnel ssh://other\n"
+    )
+    address = _rex._app_tunnel_address("ssh://gpu", ps)
+    assert address == "unix://" + str(sock).replace(" ", "%20")
+    assert _rex._app_tunnel_address("ssh://other", ps) is None
+    assert _rex._app_tunnel_address("ssh://missing", ps) is None
